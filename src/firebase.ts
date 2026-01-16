@@ -5,10 +5,22 @@
 import admin from 'firebase-admin';
 import { config } from './config.js';
 
-// Initialize Firebase Admin with application default credentials
-// In Docker, this uses GOOGLE_APPLICATION_CREDENTIALS env var
+// Initialize Firebase Admin
 if (!admin.apps.length) {
+    let credential;
+
+    // Check for raw JSON in env (e.g. from Dokploy)
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+        try {
+            const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+            credential = admin.credential.cert(serviceAccount);
+        } catch (error) {
+            console.error('Error parsing FIREBASE_SERVICE_ACCOUNT_JSON:', error);
+        }
+    }
+
     admin.initializeApp({
+        credential,
         projectId: config.firebaseProjectId,
         storageBucket: `${config.firebaseProjectId}.firebasestorage.app`,
     });
