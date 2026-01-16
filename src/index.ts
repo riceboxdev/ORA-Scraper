@@ -12,6 +12,8 @@ import { ensureSystemAccount } from './firebase.js';
 import { getScheduleConfig } from './db.js';
 import sourcesRouter from './routes/sources.js';
 import jobsRouter, { setRunScrapeFunction, markLastRun } from './routes/jobs.js';
+import imagesRouter from './routes/images.js';
+import settingsRouter from './routes/settings.js';
 import { runScrapeJob } from './services/scraper.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +31,8 @@ app.get('/health', (_req, res) => {
 // API routes
 app.use('/api/sources', sourcesRouter);
 app.use('/api/jobs', jobsRouter);
+app.use('/api/images', imagesRouter);
+app.use('/api/settings', settingsRouter);
 
 // Fallback to index.html for SPA
 app.get('*', (_req, res) => {

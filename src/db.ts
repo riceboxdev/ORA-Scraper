@@ -61,6 +61,31 @@ db.exec(`
         firstFailedAt TEXT DEFAULT (datetime('now')),
         lastFailedAt TEXT DEFAULT (datetime('now'))
     );
+
+    -- Quality filtered images (for preview/debugging)
+    CREATE TABLE IF NOT EXISTS filtered_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sourceId INTEGER,
+        imageUrl TEXT NOT NULL,
+        qualityScore REAL,
+        qualityType TEXT,
+        filterReason TEXT,
+        filteredAt TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (sourceId) REFERENCES sources(id)
+    );
+
+    -- Job execution history
+    CREATE TABLE IF NOT EXISTS job_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        startedAt TEXT NOT NULL,
+        completedAt TEXT,
+        status TEXT DEFAULT 'running',
+        imagesScraped INTEGER DEFAULT 0,
+        imagesUploaded INTEGER DEFAULT 0,
+        imagesFailed INTEGER DEFAULT 0,
+        qualityFiltered INTEGER DEFAULT 0,
+        errorMessage TEXT
+    );
 `);
 
 // Initialize default settings

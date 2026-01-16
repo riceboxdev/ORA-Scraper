@@ -3,7 +3,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { queries, setSetting, getSetting } from '../db.js';
+import { db, queries, setSetting, getSetting } from '../db.js';
 import type { Source } from '../types.js';
 
 const router = Router();
@@ -85,6 +85,58 @@ router.delete('/:id', (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error deleting source:', error);
         res.status(500).json({ error: 'Failed to delete source' });
+    }
+});
+
+// Bulk update sources (enable/disable)
+router.put('/bulk', (req: Request, res: Response) => {
+    try {
+        const { ids, enabled } = req.body;
+
+        if (!Array.isArray(ids) || ids.length === 0) {
+            res.status(400).json({ error: 'ids array is required' });
+            return;
+        }
+
+        if (enabled === undefined) {
+            res.status(400).json({ error: 'enabled field is required' });
+            return;
+        }
+
+        const placeholders = ids.map(() => '?').join(',');
+        db.prepare(`
+            UPDATE sources 
+            SET enabled = ? 
+            WHERE id IN (${placeholders})
+        `).run(enabled ? 1 : 0, ...ids);
+
+        res.json({ success: true, updated: ids.length });
+    } catch (error) {
+        console.error('Error bulk updating sources:', error);
+        res.status(500).json({ error: 'Failed to update sources' });
+    }
+});
+
+// Bulk delete sources
+router.delete('/bulk', (req: Request, res: Response) => {
+    try {
+        const { ids } = req.body;
+
+        if (!Array.isArray(ids) || ids.length === 0) {
+            res.status(400).json({ error: 'ids array is required' });
+            return;
+        }
+
+        const placeholders = ids.map(() => '?').join(',');
+        const result = db.prepare(`
+            DELETE FROM sources 
+            WHERE id IN (${placeholders})
+        `).run(...ids);
+
+        res.json({ success: true, deleted: result.changes });
+    } catch (error) {
+        console.error('Error bulk deleting sources:', error);
+        res.status(500).json({ error: 'Failed to delete sources' });
     }
 });
 

@@ -5,404 +5,97 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ORA Scraper Admin</title>
-    <style>
-        :root {
-            --bg: #0f0f0f;
-            --card: #1a1a1a;
-            --border: #2a2a2a;
-            --text: #ffffff;
-            --text-muted: #888888;
-            --accent: #6366f1;
-            --accent-hover: #818cf8;
-            --success: #22c55e;
-            --warning: #eab308;
-            --danger: #ef4444;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            padding: 24px;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-        }
-
-        h1 {
-            font-size: 24px;
-            font-weight: 600;
-        }
-
-        .btn {
-            padding: 10px 20px;
-            border-radius: 8px;
-            border: none;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-
-        .btn-primary {
-            background: var(--accent);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: var(--accent-hover);
-        }
-
-        .btn-secondary {
-            background: var(--card);
-            color: var(--text);
-            border: 1px solid var(--border);
-        }
-
-        .btn-danger {
-            background: var(--danger);
-            color: white;
-        }
-
-        .card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 16px;
-        }
-
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-        }
-
-        .card h2 {
-            font-size: 18px;
-            font-weight: 600;
-        }
-
-        /* Stats Grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-
-        .stat {
-            background: var(--bg);
-            border-radius: 8px;
-            padding: 12px;
-            text-align: center;
-        }
-
-        .stat-value {
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--accent);
-        }
-
-        .stat-label {
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-top: 4px;
-        }
-
-        /* Schedule Form */
-        .schedule-form {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
-            align-items: end;
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .form-group label {
-            font-size: 12px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-        }
-
-        .form-group input,
-        .form-group select {
-            padding: 10px 12px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            background: var(--bg);
-            color: var(--text);
-            font-size: 14px;
-        }
-
-        /* Sources List */
-        .source-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px;
-            background: var(--bg);
-            border-radius: 8px;
-            margin-bottom: 8px;
-        }
-
-        .source-info {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .source-type {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 500;
-            text-transform: uppercase;
-        }
-
-        .source-type.unsplash {
-            background: #0369a1;
-        }
-
-        .source-type.reddit {
-            background: #ea580c;
-        }
-
-        .source-type.url {
-            background: #7c3aed;
-        }
-
-        .source-query {
-            font-size: 14px;
-        }
-
-        .source-stats {
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-
-        .source-actions {
-            display: flex;
-            gap: 8px;
-        }
-
-        .source-actions button {
-            padding: 6px 12px;
-            font-size: 12px;
-        }
-
-        /* Toggle Switch */
-        .toggle {
-            width: 44px;
-            height: 24px;
-            background: var(--border);
-            border-radius: 12px;
-            position: relative;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .toggle.active {
-            background: var(--success);
-        }
-
-        .toggle::after {
-            content: '';
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            background: white;
-            border-radius: 50%;
-            top: 2px;
-            left: 2px;
-            transition: transform 0.2s;
-        }
-
-        .toggle.active::after {
-            transform: translateX(20px);
-        }
-
-        /* Modal */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-            display: none;
-        }
-
-        .modal-overlay.visible {
-            display: flex;
-        }
-
-        .modal {
-            background: var(--card);
-            border-radius: 16px;
-            padding: 24px;
-            width: 100%;
-            max-width: 400px;
-        }
-
-        .modal h3 {
-            margin-bottom: 16px;
-        }
-
-        .modal .form-group {
-            margin-bottom: 16px;
-        }
-
-        .modal-actions {
-            display: flex;
-            gap: 12px;
-            margin-top: 20px;
-        }
-
-        .modal-actions .btn {
-            flex: 1;
-        }
-
-        /* Status indicator */
-        .status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 14px;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-        }
-
-        .status-dot.enabled {
-            background: var(--success);
-        }
-
-        .status-dot.disabled {
-            background: var(--text-muted);
-        }
-    </style>
+    <meta name="description" content="Admin dashboard for ORA image scraper service">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Chart.js for stats visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
-    <div class="container">
-        <header>
-            <h1>🖼️ ORA Scraper</h1>
-            <button class="btn btn-primary" id="runNowBtn">▶ Run Now</button>
-        </header>
+    <div class="app-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <span class="sidebar-logo-icon">🖼️</span>
+                    <span>ORA Scraper</span>
+                </div>
+            </div>
 
-        <!-- Stats Card -->
-        <div class="card">
-            <div class="card-header">
-                <h2>Today's Stats</h2>
-                <div class="status">
-                    <span class="status-dot" id="statusDot"></span>
-                    <span id="statusText">Loading...</span>
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-title">Overview</div>
+                    <a href="#/" class="nav-item active" data-page="dashboard">
+                        <span class="nav-item-icon">📊</span>
+                        <span>Dashboard</span>
+                    </a>
                 </div>
-            </div>
-            <div class="stats-grid">
-                <div class="stat">
-                    <div class="stat-value" id="statScraped">-</div>
-                    <div class="stat-label">Scraped</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="statUploaded">-</div>
-                    <div class="stat-label">Uploaded</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="statFiltered">-</div>
-                    <div class="stat-label">Filtered</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="statFailed">-</div>
-                    <div class="stat-label">Failed</div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Schedule Card -->
-        <div class="card">
-            <div class="card-header">
-                <h2>Schedule</h2>
-            </div>
-            <div class="schedule-form">
-                <div class="form-group">
-                    <label>Batch Size</label>
-                    <input type="number" id="batchSize" min="1" max="100" value="30">
+                <div class="nav-section">
+                    <div class="nav-section-title">Content</div>
+                    <a href="#/sources" class="nav-item" data-page="sources">
+                        <span class="nav-item-icon">🔗</span>
+                        <span>Sources</span>
+                    </a>
+                    <a href="#/images" class="nav-item" data-page="images">
+                        <span class="nav-item-icon">🖼️</span>
+                        <span>Images</span>
+                    </a>
                 </div>
-                <div class="form-group">
-                    <label>Interval (hours)</label>
-                    <input type="number" id="intervalHours" min="1" max="24" value="4">
-                </div>
-                <div class="form-group">
-                    <label>Enabled</label>
-                    <div class="toggle" id="enabledToggle"></div>
-                </div>
-            </div>
-            <div style="margin-top: 16px;">
-                <button class="btn btn-secondary" id="saveScheduleBtn">Save Schedule</button>
-            </div>
-        </div>
 
-        <!-- Sources Card -->
-        <div class="card">
-            <div class="card-header">
-                <h2>Sources</h2>
-                <button class="btn btn-secondary" id="addSourceBtn">+ Add Source</button>
-            </div>
-            <div id="sourcesList">
-                <div class="source-item" style="justify-content: center; color: var(--text-muted);">
-                    Loading sources...
+                <div class="nav-section">
+                    <div class="nav-section-title">System</div>
+                    <a href="#/settings" class="nav-item" data-page="settings">
+                        <span class="nav-item-icon">⚙️</span>
+                        <span>Settings</span>
+                    </a>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-status">
+                    <span class="status-dot" id="sidebarStatusDot"></span>
+                    <span id="sidebarStatusText">Loading...</span>
                 </div>
             </div>
-        </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <div class="page-container" id="pageContainer">
+                <!-- Pages will be rendered here by JavaScript -->
+            </div>
+        </main>
     </div>
+
+    <!-- Toast Container for Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
 
     <!-- Add/Edit Source Modal -->
     <div class="modal-overlay" id="sourceModal">
         <div class="modal">
-            <h3 id="modalTitle">Add Source</h3>
-            <div class="form-group">
-                <label>Type</label>
-                <select id="sourceType">
-                    <option value="unsplash">Unsplash</option>
-                    <option value="reddit">Reddit</option>
-                    <option value="url">URL</option>
-                </select>
+            <div class="modal-header">
+                <h3 class="modal-title" id="sourceModalTitle">Add Source</h3>
+                <button class="modal-close" onclick="closeSourceModal()">✕</button>
             </div>
-            <div class="form-group">
-                <label id="queryLabel">Search Query</label>
-                <input type="text" id="sourceQuery" placeholder="e.g., interior design">
+            <div class="modal-body">
+                <div class="form-group mb-4">
+                    <label class="form-label">Source Type</label>
+                    <select class="form-select" id="sourceType" style="width: 100%;">
+                        <option value="unsplash">Unsplash - High-quality stock photos</option>
+                        <option value="reddit">Reddit - Subreddit images</option>
+                        <option value="url">URL - Custom website</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" id="sourceQueryLabel">Search Query</label>
+                    <input type="text" class="form-input" id="sourceQuery" placeholder="e.g., interior design"
+                        style="width: 100%;">
+                </div>
             </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
-                <button class="btn btn-primary" id="saveSourceBtn">Save</button>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSourceModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveSource()">Save Source</button>
             </div>
         </div>
     </div>
@@ -410,11 +103,32 @@
     <!-- Confirm Delete Modal -->
     <div class="modal-overlay" id="confirmModal">
         <div class="modal">
-            <h3>Confirm Delete</h3>
-            <p style="color: var(--text-muted); margin-bottom: 20px;">Are you sure you want to delete this source?</p>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="confirmCancelBtn">Cancel</button>
-                <button class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+            <div class="modal-header">
+                <h3 class="modal-title">Confirm Delete</h3>
+                <button class="modal-close" onclick="closeConfirmModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Are you sure you want to delete this source? This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+                <button class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Detail Modal -->
+    <div class="modal-overlay" id="imageModal">
+        <div class="modal modal-lg">
+            <div class="modal-header">
+                <h3 class="modal-title">Image Details</h3>
+                <button class="modal-close" onclick="closeImageModal()">✕</button>
+            </div>
+            <div class="modal-body" id="imageModalBody">
+                <!-- Filled dynamically -->
+            </div>
+            <div class="modal-footer" id="imageModalFooter">
+                <button class="btn btn-secondary" onclick="closeImageModal()">Close</button>
             </div>
         </div>
     </div>
