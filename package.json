@@ -1,0 +1,34 @@
+{
+    "name": "ora-scraper",
+    "version": "1.0.0",
+    "description": "ORA Image Scraper Service with Web Admin UI",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "dev": "tsx watch src/index.ts",
+        "scrape:once": "tsx src/cli.ts --once"
+    },
+    "dependencies": {
+        "axios": "^1.6.0",
+        "better-sqlite3": "^9.4.0",
+        "cheerio": "^1.0.0-rc.12",
+        "dotenv": "^17.2.3",
+        "express": "^4.18.2",
+        "firebase-admin": "^12.0.0",
+        "node-cron": "^3.0.3",
+        "puppeteer": "^22.0.0",
+        "sharp": "^0.33.0"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.8",
+        "@types/express": "^4.17.21",
+        "@types/node": "^20.11.0",
+        "@types/node-cron": "^3.0.11",
+        "tsx": "^4.7.0",
+        "typescript": "^5.3.0"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}
