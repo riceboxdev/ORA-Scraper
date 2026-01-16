@@ -5,17 +5,16 @@ services:
     build: .
     container_name: ora-scraper
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - NODE_ENV=production
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
-      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-credentials.json
       - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY}
       - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID}
       - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET}
+      - FIREBASE_SERVICE_ACCOUNT_JSON=${FIREBASE_SERVICE_ACCOUNT_JSON}
     volumes:
       - ./data:/app/data
-      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:3000/health" ]
