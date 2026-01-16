@@ -97,23 +97,27 @@ export class PuppeteerScraper extends BaseScraper {
                     let parentLink: string | null = null;
                     let parent = img.parentElement;
 
-                    // Walk up the DOM looking for an anchor tag (up to 5 levels)
-                    for (let i = 0; i < 5 && parent; i++) {
+
+                    // Walk up the DOM looking for an anchor tag (up to 10 levels)
+                    for (let i = 0; i < 10 && parent; i++) {
                         if (parent.tagName === 'A') {
                             const href = (parent as any).href;
+
                             // For Pinterest, only use links that go to /pin/ pages
                             if (isPinterestPage) {
                                 if (href.includes('/pin/')) {
                                     parentLink = href;
+                                    break;
                                 }
                             } else {
                                 // For other sites, use any anchor link
                                 parentLink = href;
+                                break;
                             }
-                            break;
                         }
                         parent = parent.parentElement;
                     }
+
 
                     return {
                         src: img.src || img.dataset?.src || '',
