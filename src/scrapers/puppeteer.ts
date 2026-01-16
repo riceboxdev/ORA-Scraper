@@ -85,18 +85,45 @@ export class PuppeteerScraper extends BaseScraper {
 
             console.log(`  [Puppeteer] Extracting images...`);
 
-            // Extract images - use page.$eval to avoid transpilation issues
-            const imgData = await page.$$eval('img', (imgs) => {
+            // Check if this is a Pinterest page
+            const isPinterest = domain.includes('pinterest');
+
+            // Extract images with their parent link (for Pinterest pin URLs)
+            const imgData = await page.$$eval('img', (imgs, isPinterestPage) => {
                 return imgs.map(img => {
                     const rect = img.getBoundingClientRect();
+
+                    // Try to find the parent anchor tag to get the individual item URL
+                    let parentLink: string | null = null;
+                    let parent = img.parentElement;
+
+                    // Walk up the DOM looking for an anchor tag (up to 5 levels)
+                    for (let i = 0; i < 5 && parent; i++) {
+                        if (parent.tagName === 'A') {
+                            const href = (parent as any).href;
+                            // For Pinterest, only use links that go to /pin/ pages
+                            if (isPinterestPage) {
+                                if (href.includes('/pin/')) {
+                                    parentLink = href;
+                                }
+                            } else {
+                                // For other sites, use any anchor link
+                                parentLink = href;
+                            }
+                            break;
+                        }
+                        parent = parent.parentElement;
+                    }
+
                     return {
                         src: img.src || img.dataset?.src || '',
                         alt: img.alt || '',
                         width: rect.width || img.naturalWidth || 0,
-                        height: rect.height || img.naturalHeight || 0
+                        height: rect.height || img.naturalHeight || 0,
+                        parentLink,
                     };
                 });
-            });
+            }, isPinterest);
 
             console.log(`  [Puppeteer] Found ${imgData.length} img elements`);
 
@@ -136,9 +163,22 @@ export class PuppeteerScraper extends BaseScraper {
                 // Set to 0 so the quality filter skips the initial size check and checks the real file instead
                 const isUpgraded = src !== img.src;
 
+                // Determine the source URL - use the individual item link if available, otherwise fall back to page URL
+                let itemSourceUrl = url;
+                if (img.parentLink) {
+                    try {
+                        // Resolve the parent link to an absolute URL
+                        itemSourceUrl = new URL(img.parentLink, url).toString();
+                        console.log(`  [Puppeteer] Found individual source: ${itemSourceUrl.substring(0, 60)}...`);
+                    } catch {
+                        // If URL parsing fails, use the page URL
+                        itemSourceUrl = url;
+                    }
+                }
+
                 images.push({
                     url: absoluteUrl,
-                    sourceUrl: url,
+                    sourceUrl: itemSourceUrl,
                     sourceDomain: domain,
                     alt: img.alt || undefined,
                     width: isUpgraded ? 0 : Math.round(img.width),
