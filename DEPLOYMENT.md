@@ -49,6 +49,9 @@ Upload your `firebase-credentials.json` to the server:
 scp path/to/local/firebase-credentials.json user@your-vps-ip:/path/to/ora-scraper-service/
 ```
 
+**Alternatively (and recommended for Dokploy/CI):**
+Set the `FIREBASE_SERVICE_ACCOUNT_JSON` environment variable with the content of your credentials file.
+
 ## Step 4: Deploy
 
 Build and start the container:
@@ -71,7 +74,7 @@ View logs:
 docker-compose logs -f
 ```
 
-The service should now be accessible at `http://your-vps-ip:3000`.
+The service should now be accessible at `http://your-vps-ip:3001` (Note: Port 3001 is used to avoid conflicts).
 
 ## Updating the Service
 
