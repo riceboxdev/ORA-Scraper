@@ -3,6 +3,9 @@
  */
 
 import admin from 'firebase-admin';
+import { Auth } from 'firebase-admin/auth';
+import { Storage } from 'firebase-admin/storage';
+import { Firestore } from 'firebase-admin/firestore';
 import { config } from './config.js';
 
 // Initialize Firebase Admin
@@ -26,9 +29,9 @@ if (!admin.apps.length) {
     });
 }
 
-export const db = admin.firestore();
-export const storage = admin.storage();
-export const auth = admin.auth();
+export const db: Firestore = admin.firestore();
+export const storage: Storage = admin.storage();
+export const auth: Auth = admin.auth();
 
 // System curator account ID
 export const SYSTEM_AUTHOR_ID = 'ora-curator';

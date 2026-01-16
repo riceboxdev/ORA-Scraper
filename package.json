@@ -2,6 +2,7 @@
     "name": "ora-scraper",
     "version": "1.0.0",
     "description": "ORA Image Scraper Service with Web Admin UI",
+    "type": "module",
     "main": "dist/index.js",
     "scripts": {
         "build": "tsc",

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, '..', 'data', 'sources.db');
 
-const db = new Database(DB_PATH);
+const db: Database.Database = new Database(DB_PATH);
 
 // Enable WAL mode for better concurrent access
 db.pragma('journal_mode = WAL');
@@ -73,7 +73,7 @@ initSettings.run('enabled', 'true');
 initSettings.run('lastRunAt', '');
 
 // Prepared statements
-export const queries = {
+export const queries: Record<string, Database.Statement> = {
     // Sources
     getAllSources: db.prepare('SELECT * FROM sources ORDER BY createdAt DESC'),
     getEnabledSources: db.prepare('SELECT * FROM sources WHERE enabled = 1'),
