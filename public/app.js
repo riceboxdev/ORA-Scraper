@@ -2525,46 +2525,47 @@ function renderSuggestionsList() {
         const thumbnails = s.thumbnailUrls || [];
 
         return `
-        <div class="card p-4" id="suggestion-${s.id}">
-            <div class="flex gap-6">
+        <div class="card p-4" id="suggestion-${s.id}" style="padding: 1.5rem;">
+            <div class="flex" style="gap: 1.5rem;">
                 <!-- Visuals -->
-                <div class="flex-shrink-0 w-48">
-                    <div class="grid grid-cols-2 gap-1 rounded overflow-hidden aspect-video bg-black/20">
+                <div style="flex-shrink: 0; width: 200px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; border-radius: 8px; overflow: hidden; aspect-ratio: 16/9; background: rgba(0,0,0,0.2);">
                         ${thumbnails.slice(0, 4).map(url => `
-                            <div class="bg-cover bg-center h-full" style="background-image: url('${escapeHtml(url)}')"></div>
+                            <div style="background-image: url('${escapeHtml(url)}'); background-size: cover; background-position: center; height: 100%; width: 100%;"></div>
                         `).join('')}
+                        ${thumbnails.length === 0 ? '<div style="grid-column: span 2; display: flex; align-items: center; justify-content: center; color: #71717a; font-size: 12px; height: 100%;">No images</div>' : ''}
                     </div>
                 </div>
 
                 <!-- Content -->
-                <div class="flex-grow">
-                    <div class="flex justify-between items-start mb-2">
-                        <div>
-                            <div class="flex items-center gap-2">
-                                <h3 class="font-bold text-lg">${escapeHtml(s.name)}</h3>
-                                <span class="badge badge-secondary">${Math.round(s.confidence * 100)}% Match</span>
+                <div style="flex: 1; min-width: 0;">
+                    <div class="flex justify-between items-start mb-2" style="margin-bottom: 0.5rem; justify-content: space-between; align-items: flex-start;">
+                        <div style="flex: 1; margin-right: 1rem; min-width: 0;">
+                            <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <h3 class="font-bold" style="font-size: 1.125rem; font-weight: 700; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">${escapeHtml(s.name)}</h3>
+                                <span class="badge badge-secondary" style="white-space: nowrap;">${Math.round(s.confidence * 100)}% Match</span>
                             </div>
-                            <p class="text-sm text-muted mt-1">${escapeHtml(s.description)}</p>
+                            <p class="text-muted mt-1" style="font-size: 0.875rem; margin-top: 0.25rem; line-height: 1.4; color: #a1a1aa;">${escapeHtml(s.description)}</p>
                         </div>
-                        <div class="flex gap-2">
+                        <div class="flex gap-2" style="display: flex; gap: 0.5rem; flex-shrink: 0;">
                             <button class="btn btn-sm btn-secondary" onclick="rejectSuggestion('${s.id}')">Start Over</button>
                             <button class="btn btn-sm btn-primary" onclick="approveSuggestion('${s.id}')">Approve Idea</button>
                         </div>
                     </div>
 
-                    <div class="flex gap-4 text-xs mt-3 p-3 bg-white/5 rounded-lg border border-white/5">
-                        <div class="flex items-center gap-2">
-                            <span class="text-muted">Color:</span>
-                            <span class="w-4 h-4 rounded-full border border-white/20" style="background: ${s.suggestedColor}"></span>
-                            <code>${s.suggestedColor}</code>
+                    <div class="flex gap-4 text-xs mt-3 p-3 rounded-lg border" style="display: flex; gap: 1rem; margin-top: 0.75rem; padding: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 0.5rem; font-size: 0.75rem;">
+                        <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="text-muted" style="color: #71717a;">Color:</span>
+                            <span style="width: 1rem; height: 1rem; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.2); background: ${s.suggestedColor}"></span>
+                            <code style="font-family: monospace;">${s.suggestedColor}</code>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-muted">Icon:</span>
-                            <code>${s.suggestedIcon}</code>
+                        <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="text-muted" style="color: #71717a;">Icon:</span>
+                            <code style="font-family: monospace;">${s.suggestedIcon}</code>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-muted">Tags:</span>
-                            <span class="text-muted italic">${(s.matchingTags || []).slice(0, 5).join(', ')}</span>
+                        <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="text-muted" style="color: #71717a;">Tags:</span>
+                            <span class="italic" style="font-style: italic; color: #a1a1aa;">${(s.matchingTags || []).slice(0, 5).join(', ')}</span>
                         </div>
                     </div>
                 </div>
