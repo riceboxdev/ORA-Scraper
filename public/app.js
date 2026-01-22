@@ -2787,10 +2787,16 @@ async function renderAnalyticsPage(container) {
         <div class="page-header">
             <h1 class="page-title">Platform Analytics</h1>
             <div class="page-actions">
+                <select class="form-select" id="analyticsRange" onchange="loadCmsGrowthData()">
+                    <option value="7">Last 7 Days</option>
+                    <option value="30" selected>Last 30 Days</option>
+                    <option value="90">Last 90 Days</option>
+                </select>
                 <button class="btn btn-secondary" onclick="loadCmsAnalytics()">🔄 Refresh</button>
             </div>
         </div>
 
+        <!-- High-level Stats -->
         <div id="analyticsOverview" class="stats-grid mb-6">
             <div class="stat-card"><div class="stat-value">...</div><div class="stat-label">Total Users</div></div>
             <div class="stat-card"><div class="stat-value">...</div><div class="stat-label">Total Posts</div></div>
@@ -2798,12 +2804,64 @@ async function renderAnalyticsPage(container) {
             <div class="stat-card"><div class="stat-value">...</div><div class="stat-label">Ideas</div></div>
         </div>
 
+        <!-- Engagement Stats -->
+        <div class="card mb-6">
+            <div class="card-header"><span class="card-title">❤️ Total Engagement</span></div>
+            <div class="card-body">
+                <div id="engagementStats" class="flex gap-8 justify-around p-4">
+                    <div class="text-center">
+                        <div class="text-2xl font-bold" id="totalLikes">-</div>
+                        <div class="text-muted text-sm">Likes</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold" id="totalSaves">-</div>
+                        <div class="text-muted text-sm">Saves</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold" id="totalViews">-</div>
+                        <div class="text-muted text-sm">Views</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Growth Chart -->
+        <div class="card mb-6">
+            <div class="card-header"><span class="card-title">📈 Growth Trend</span></div>
+            <div class="card-body">
+                <div style="height: 300px; position: relative;">
+                    <canvas id="growthChart"></canvas>
+                </div>
+            </div>
+        </div>
+
         <div class="analytics-grid">
+            <!-- Top Ideas -->
+            <div class="card">
+                <div class="card-header"><span class="card-title">🔥 Top Ideas</span></div>
+                <div class="card-body">
+                    <div id="topIdeas" class="flex flex-col gap-3">
+                        <div class="text-center text-muted">Loading...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Contributors -->
+            <div class="card">
+                <div class="card-header"><span class="card-title">🏆 Top Contributors (Recent)</span></div>
+                <div class="card-body">
+                    <div id="topUsers" class="flex flex-col gap-3">
+                        <div class="text-center text-muted">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="analytics-grid mt-6">
             <div class="card">
                 <div class="card-header"><span class="card-title">⚙️ Processing Health</span></div>
                 <div class="card-body">
                     <div id="processingStats" class="flex flex-col gap-4">
-                        <!-- Filled dynamically -->
                         <div class="text-center text-muted">Loading metrics...</div>
                     </div>
                 </div>
@@ -2813,41 +2871,106 @@ async function renderAnalyticsPage(container) {
                 <div class="card-header"><span class="card-title">🛡️ Moderation Queue</span></div>
                 <div class="card-body">
                     <div id="moderationStats" class="flex flex-col gap-4">
-                        <!-- Filled dynamically -->
                         <div class="text-center text-muted">Loading metrics...</div>
                     </div>
                 </div>
             </div>
         </div>
-
-        <div class="card mt-6">
-            <div class="card-header"><span class="card-title">📈 Growth Trend (Last 30 Days)</span></div>
-            <div class="card-body">
-                <div id="growthChart" class="flex items-center justify-center text-muted" style="height: 300px; background: var(--bg-tertiary); border-radius: var(--radius-lg);">
-                    Chart implementation pending (integrate Chart.js if required)
-                </div>
-                <div id="growthTable" class="mt-4">
-                    <!-- Text summary of growth -->
-                </div>
-            </div>
-        </div>
     `;
 
-    await loadCmsAnalytics();
+    loadCmsAnalytics();
 }
 
 async function loadCmsAnalytics() {
     try {
-        const data = await api('/api/cms/analytics/overview');
-        state.cmsAnalytics = data;
-        renderAnalyticsOverview();
-
-        // Also fetch growth data
-        const growthData = await api('/api/cms/analytics/growth?days=30');
-        renderGrowthData(growthData.growth);
+        await Promise.all([
+            loadOverviewData(),
+            loadCmsGrowthData(),
+            loadTopIdeas(),
+            loadTopUsers()
+        ]);
     } catch (e) {
         console.error('Failed to load analytics:', e);
         showToast('Failed to load analytics', 'error');
+    }
+}
+
+async function loadOverviewData() {
+    const data = await api('/api/cms/analytics/overview');
+    state.cmsAnalytics = data;
+    renderAnalyticsOverview();
+}
+
+async function loadCmsGrowthData() {
+    const days = document.getElementById('analyticsRange')?.value || 30;
+    try {
+        const growthData = await api(`/api/cms/analytics/growth?days=${days}`);
+        renderGrowthChart(growthData.growth);
+    } catch (e) {
+        console.error('Failed to load growth data:', e);
+    }
+}
+
+async function loadTopIdeas() {
+    try {
+        const data = await api('/api/cms/ideas');
+        const ideas = data.ideas.sort((a, b) => (b.postCount || 0) - (a.postCount || 0)).slice(0, 5);
+
+        const container = document.getElementById('topIdeas');
+        if (!container) return;
+
+        if (ideas.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted">No ideas found</div>';
+            return;
+        }
+
+        container.innerHTML = ideas.map(idea => `
+            <div class="flex items-center justify-between p-2 rounded hover:bg-white/5 cursor-pointer" onclick="viewIdeaDetails('${idea.id}')">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded flex items-center justify-center font-bold text-white shadow-sm" 
+                         style="background-color: ${idea.color || '#666'}">
+                         ${(idea.name[0] || '?').toUpperCase()}
+                    </div>
+                    <div>
+                        <div class="font-medium text-sm">${escapeHtml(idea.name)}</div>
+                        <div class="text-xs text-muted">/${escapeHtml(idea.slug)}</div>
+                    </div>
+                </div>
+                <div class="text-sm font-semibold">${idea.postCount || 0} posts</div>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Failed to load top ideas:', e);
+    }
+}
+
+async function loadTopUsers() {
+    try {
+        const data = await api('/api/cms/analytics/users/top');
+        const users = data.users;
+
+        const container = document.getElementById('topUsers');
+        if (!container) return;
+
+        if (!users || users.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted">No data available</div>';
+            return;
+        }
+
+        container.innerHTML = users.map(user => `
+            <div class="flex items-center justify-between p-2 rounded hover:bg-white/5 cursor-pointer" onclick="viewUserDetails('${user.id}')">
+                <div class="flex items-center gap-3">
+                    <img src="${user.avatarUrl || 'https://placehold.co/32x32?text=U'}" class="w-8 h-8 rounded-full border border-white/10">
+                    <div>
+                        <div class="font-medium text-sm">${escapeHtml(user.username || 'User')}</div>
+                        <div class="text-xs text-muted">Recent Activity</div>
+                    </div>
+                </div>
+                <div class="text-sm font-semibold">${user.recentPostCount || 0} posts</div>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Failed to load top users:', e);
     }
 }
 
@@ -2855,9 +2978,15 @@ function renderAnalyticsOverview() {
     const overview = document.getElementById('analyticsOverview');
     const processing = document.getElementById('processingStats');
     const moderation = document.getElementById('moderationStats');
+
+    // Engagement stats
+    const likesEl = document.getElementById('totalLikes');
+    const savesEl = document.getElementById('totalSaves');
+    const viewsEl = document.getElementById('totalViews');
+
     if (!overview || !state.cmsAnalytics) return;
 
-    const { totals, processing: proc, moderation: mod } = state.cmsAnalytics;
+    const { totals, processing: proc, moderation: mod, engagement } = state.cmsAnalytics;
 
     overview.innerHTML = `
         <div class="stat-card">
@@ -2877,6 +3006,12 @@ function renderAnalyticsOverview() {
             <div class="stat-label">Total Ideas</div>
         </div>
     `;
+
+    if (likesEl && engagement) {
+        likesEl.textContent = engagement.likes.toLocaleString();
+        savesEl.textContent = engagement.saves.toLocaleString();
+        viewsEl.textContent = engagement.views.toLocaleString();
+    }
 
     processing.innerHTML = `
         <div class="flex justify-between items-center">
@@ -2909,19 +3044,76 @@ function renderAnalyticsOverview() {
     `;
 }
 
-function renderGrowthData(growth) {
-    const tableDiv = document.getElementById('growthTable');
-    if (!tableDiv || !growth || growth.length === 0) return;
+function renderGrowthChart(growth) {
+    const ctx = document.getElementById('growthChart');
+    if (!ctx) return;
 
-    const recentGrowth = growth.slice(-7); // Last 7 days
-    const totalNewUsers = recentGrowth.reduce((sum, d) => sum + d.users, 0);
-    const totalNewPosts = recentGrowth.reduce((sum, d) => sum + d.posts, 0);
+    // Destroy existing chart if any
+    if (window.growthChartInstance) {
+        window.growthChartInstance.destroy();
+    }
 
-    tableDiv.innerHTML = `
-        <div class="text-sm text-muted">
-            In the last 7 days, there were <b>${totalNewUsers}</b> new users and <b>${totalNewPosts}</b> new posts.
-        </div>
-    `;
+    const labels = growth.map(d => {
+        const date = new Date(d.date);
+        return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    });
+
+    window.growthChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'New Users',
+                    data: growth.map(d => d.users),
+                    borderColor: '#22c55e',
+                    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: 'New Posts',
+                    data: growth.map(d => d.posts),
+                    borderColor: '#6366f1',
+                    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: { color: '#a1a1aa' }
+                },
+                tooltip: {
+                    backgroundColor: '#18181b',
+                    titleColor: '#fff',
+                    bodyColor: '#a1a1aa',
+                    borderColor: '#27272a',
+                    borderWidth: 1
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: '#27272a' },
+                    ticks: { color: '#71717a' }
+                },
+                y: {
+                    grid: { color: '#27272a' },
+                    ticks: { color: '#71717a' },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
 }
 
 // ============================================

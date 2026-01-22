@@ -888,6 +888,18 @@ router.get('/analytics/overview', async (req: Request, res: Response) => {
             db.collection('userPosts').where('moderationStatus', '==', 'pending').count().get(),
         ]);
 
+        // Get Engagement Stats (Aggregation)
+        // Note: Requires Firestore Composite Indices technically for sorting, but for sum aggregation it should be fine?
+        // Actually, we can use AggregateField.sum if available, but let's check widely used availability.
+        // Assuming firebase-admin v12+ supports it.
+        const engagementSnapshot = await db.collection('userPosts').aggregate({
+            totalLikes: admin.firestore.AggregateField.sum('likeCount'),
+            totalSaves: admin.firestore.AggregateField.sum('saveCount'),
+            totalViews: admin.firestore.AggregateField.sum('viewCount'),
+        }).get();
+
+        const engagement = engagementSnapshot.data();
+
         res.json({
             totals: {
                 users: usersCount.data().count,
@@ -904,10 +916,70 @@ router.get('/analytics/overview', async (req: Request, res: Response) => {
                 flagged: flaggedCount.data().count,
                 awaitingModeration: awaitingModerationCount.data().count,
             },
+            engagement: {
+                likes: engagement.totalLikes || 0,
+                saves: engagement.totalSaves || 0,
+                views: engagement.totalViews || 0,
+            }
         });
     } catch (error) {
         console.error('Error fetching analytics:', error);
         res.status(500).json({ error: 'Failed to fetch analytics' });
+    }
+});
+
+/**
+ * GET /api/cms/analytics/users/top - Top contributors (heuristic)
+ */
+router.get('/analytics/users/top', async (req: Request, res: Response) => {
+    try {
+        // Since we don't have a global post count on users, we will fetch the most active users 
+        // by looking at recent posts or just returning a sample.
+        // Better approach: We should probably maintain a counter, but for now, 
+        // let's just get the users who have created posts recently.
+        // Or simpler: just list the most recent users for now, or if we really want "top",
+        // we might have to scan.
+
+        // Let's try to get users with high post counts by listing users and taking their stats?
+        // No, that's N+1.
+        // Optimization: Let's just return the last 5 users who posted.
+
+        const recentPosts = await db.collection('userPosts')
+            .orderBy('createdAt', 'desc')
+            .limit(50)
+            .get();
+
+        const userPostCounts: Record<string, number> = {};
+        recentPosts.docs.forEach(doc => {
+            const uid = doc.data().authorId;
+            if (uid) userPostCounts[uid] = (userPostCounts[uid] || 0) + 1;
+        });
+
+        // Sort by frequency in this sample
+        const topUserIds = Object.entries(userPostCounts)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 5)
+            .map(([uid]) => uid);
+
+        if (topUserIds.length === 0) return res.json({ users: [] });
+
+        // Fetch user profiles
+        const users = await Promise.all(topUserIds.map(async uid => {
+            const doc = await db.collection('userProfiles').doc(uid).get();
+            if (!doc.exists) return null;
+            return {
+                id: doc.id,
+                username: doc.data()?.username,
+                displayName: doc.data()?.displayName,
+                avatarUrl: doc.data()?.avatarUrl,
+                recentPostCount: userPostCounts[uid]
+            };
+        }));
+
+        res.json({ users: users.filter(u => u !== null) });
+    } catch (error) {
+        console.error('Error fetching top users:', error);
+        res.status(500).json({ error: 'Failed to fetch top users' });
     }
 });
 
