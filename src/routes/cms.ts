@@ -926,10 +926,11 @@ router.get('/analytics/overview', async (req: Request, res: Response) => {
         ]);
 
         // Get posts by status
-        const [pendingCount, completedCount, failedCount] = await Promise.all([
+        const [pendingCount, completedCount, failedCount, failedEmbeddingCount] = await Promise.all([
             db.collection('userPosts').where('processingStatus', '==', 'pending').count().get(),
             db.collection('userPosts').where('processingStatus', '==', 'completed').count().get(),
             db.collection('userPosts').where('processingStatus', '==', 'failed').count().get(),
+            db.collection('userPosts').where('embeddingStatus', '==', 'failed').count().get(),
         ]);
 
         // Get moderation queue
@@ -961,6 +962,7 @@ router.get('/analytics/overview', async (req: Request, res: Response) => {
                 pending: pendingCount.data().count,
                 completed: completedCount.data().count,
                 failed: failedCount.data().count,
+                failedEmbeddings: failedEmbeddingCount.data().count,
             },
             moderation: {
                 flagged: flaggedCount.data().count,

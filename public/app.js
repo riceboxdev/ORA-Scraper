@@ -1358,9 +1358,6 @@ async function renderSettingsPage(container) {
                         <button class="btn btn-secondary" onclick="importSettings()">
                             📥 Import Settings
                         </button>
-                        <button class="btn btn-secondary" onclick="backfillEmbeddings()">
-                            🧠 Backfill Embeddings
-                        </button>
                         <button class="btn btn-danger" onclick="clearFailedCache()">
                             🗑️ Clear Failed Images Cache
                         </button>
@@ -1541,10 +1538,24 @@ async function clearFailedCache() {
 // ============================================
 
 async function renderPostsPage(container) {
+    // Fetch stats for backfill button
+    let failedEmbeddings = 0;
+    try {
+        const analytics = await api('/api/cms/analytics/overview');
+        failedEmbeddings = analytics.processing?.failedEmbeddings || 0;
+    } catch (e) {
+        console.warn('Failed to fetch stats for posts header', e);
+    }
+
     container.innerHTML = `
         <div class="page-header">
             <h1 class="page-title">Posts Management</h1>
             <div class="page-actions">
+                ${failedEmbeddings > 0 ? `
+                    <button class="btn btn-warning mr-2" onclick="backfillEmbeddings()">
+                        🧠 Backfill Embeddings (${failedEmbeddings})
+                    </button>
+                ` : ''}
                 <div class="view-toggle mr-4">
                     <div class="view-toggle-btn ${state.postsViewMode === 'list' ? 'active' : ''}" onclick="togglePostsView('list')">List</div>
                     <div class="view-toggle-btn ${state.postsViewMode === 'grid' ? 'active' : ''}" onclick="togglePostsView('grid')">Grid</div>
