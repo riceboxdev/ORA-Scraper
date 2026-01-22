@@ -617,9 +617,13 @@ router.get('/ideas/suggestions', async (req: Request, res: Response) => {
         }));
 
         res.json({ suggestions });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error fetching suggestions:', error);
-        res.status(500).json({ error: 'Failed to fetch suggestions' });
+        res.status(500).json({
+            error: 'Failed to fetch suggestions',
+            details: error.message,
+            code: error.code
+        });
     }
 });
 
