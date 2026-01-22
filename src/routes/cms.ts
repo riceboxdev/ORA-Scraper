@@ -908,6 +908,240 @@ router.delete('/ideas/:id', async (req: Request, res: Response) => {
 });
 
 // ============================================
+// REPORTS MANAGEMENT (MODERATION)
+// ============================================
+
+/**
+ * GET /api/cms/reports - List pending reports with post and reporter info
+ */
+router.get('/reports', async (req: Request, res: Response) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+        const status = (req.query.status as string) || 'pending';
+
+        let query: admin.firestore.Query = db.collection('reports')
+            .where('status', '==', status)
+            .orderBy('createdAt', 'desc')
+            .limit(limit);
+
+        const snapshot = await query.get();
+
+        const reports = await Promise.all(snapshot.docs.map(async doc => {
+            const data = doc.data();
+
+            // Fetch post info
+            let post = null;
+            if (data.postId) {
+                const postDoc = await db.collection('userPosts').doc(data.postId).get();
+                if (postDoc.exists) {
+                    const postData = postDoc.data();
+                    post = {
+                        id: postDoc.id,
+                        type: postData?.type,
+                        content: postData?.content,
+                        description: postData?.description,
+                        authorId: postData?.authorId,
+                        createdAt: postData?.createdAt?.toDate?.() || postData?.createdAt,
+                    };
+                }
+            }
+
+            // Fetch reporter info
+            let reporter = null;
+            if (data.reporterId) {
+                const reporterDoc = await db.collection('userProfiles').doc(data.reporterId).get();
+                if (reporterDoc.exists) {
+                    const reporterData = reporterDoc.data();
+                    reporter = {
+                        id: reporterDoc.id,
+                        username: reporterData?.username,
+                        displayName: reporterData?.displayName,
+                        avatarUrl: reporterData?.avatarUrl,
+                    };
+                }
+            }
+
+            // Fetch post author info
+            let postAuthor = null;
+            if (post?.authorId) {
+                const authorDoc = await db.collection('userProfiles').doc(post.authorId).get();
+                if (authorDoc.exists) {
+                    const authorData = authorDoc.data();
+                    postAuthor = {
+                        id: authorDoc.id,
+                        username: authorData?.username,
+                        displayName: authorData?.displayName,
+                        avatarUrl: authorData?.avatarUrl,
+                    };
+                }
+            }
+
+            return {
+                id: doc.id,
+                ...data,
+                post,
+                postAuthor,
+                reporter,
+                createdAt: data.createdAt?.toDate?.() || data.createdAt,
+            };
+        }));
+
+        res.json({
+            reports,
+            hasMore: snapshot.docs.length === limit,
+        });
+    } catch (error) {
+        console.error('Error fetching reports:', error);
+        res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+});
+
+/**
+ * POST /api/cms/reports/:id/resolve - Dismiss a report (no action taken on post)
+ */
+router.post('/reports/:id/resolve', async (req: Request, res: Response) => {
+    try {
+        await db.collection('reports').doc(req.params.id).update({
+            status: 'dismissed',
+            resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+            resolvedBy: req.user?.uid,
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error resolving report:', error);
+        res.status(500).json({ error: 'Failed to resolve report' });
+    }
+});
+
+/**
+ * POST /api/cms/reports/:id/delete-post - Delete the reported post and resolve the report
+ */
+router.post('/reports/:id/delete-post', async (req: Request, res: Response) => {
+    try {
+        const reportDoc = await db.collection('reports').doc(req.params.id).get();
+        if (!reportDoc.exists) {
+            return res.status(404).json({ error: 'Report not found' });
+        }
+
+        const reportData = reportDoc.data()!;
+        const postId = reportData.postId;
+
+        const batch = db.batch();
+
+        // Delete the post
+        batch.delete(db.collection('userPosts').doc(postId));
+
+        // Delete board_posts referencing this post
+        const boardPosts = await db.collection('board_posts')
+            .where('postId', '==', postId)
+            .get();
+        boardPosts.docs.forEach(doc => batch.delete(doc.ref));
+
+        // Delete engagements for this post
+        const engagements = await db.collection('engagements')
+            .where('postId', '==', postId)
+            .get();
+        engagements.docs.forEach(doc => batch.delete(doc.ref));
+
+        // Delete comments for this post
+        const comments = await db.collection('comments')
+            .where('postId', '==', postId)
+            .get();
+        comments.docs.forEach(doc => batch.delete(doc.ref));
+
+        // Mark report as resolved
+        batch.update(db.collection('reports').doc(req.params.id), {
+            status: 'resolved',
+            resolution: 'post_deleted',
+            resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+            resolvedBy: req.user?.uid,
+        });
+
+        // Also resolve any other pending reports for the same post
+        const otherReports = await db.collection('reports')
+            .where('postId', '==', postId)
+            .where('status', '==', 'pending')
+            .get();
+        otherReports.docs.forEach(doc => {
+            if (doc.id !== req.params.id) {
+                batch.update(doc.ref, {
+                    status: 'resolved',
+                    resolution: 'post_deleted_via_other_report',
+                    resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    resolvedBy: req.user?.uid,
+                });
+            }
+        });
+
+        await batch.commit();
+        res.json({ success: true, deletedPostId: postId });
+    } catch (error) {
+        console.error('Error deleting reported post:', error);
+        res.status(500).json({ error: 'Failed to delete post' });
+    }
+});
+
+/**
+ * POST /api/cms/reports/:id/ban-user - Ban the post author, delete the post, and resolve the report
+ */
+router.post('/reports/:id/ban-user', async (req: Request, res: Response) => {
+    try {
+        const { banReason } = req.body;
+        const reportDoc = await db.collection('reports').doc(req.params.id).get();
+        if (!reportDoc.exists) {
+            return res.status(404).json({ error: 'Report not found' });
+        }
+
+        const reportData = reportDoc.data()!;
+        const postId = reportData.postId;
+
+        // Get post to find author
+        const postDoc = await db.collection('userPosts').doc(postId).get();
+        if (!postDoc.exists) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+
+        const authorId = postDoc.data()!.authorId;
+
+        const batch = db.batch();
+
+        // Ban the user
+        batch.update(db.collection('userProfiles').doc(authorId), {
+            banned: true,
+            bannedAt: admin.firestore.FieldValue.serverTimestamp(),
+            bannedBy: req.user?.uid,
+            banReason: banReason || 'Violation of community guidelines',
+        });
+
+        // Delete the offending post
+        batch.delete(db.collection('userPosts').doc(postId));
+
+        // Mark report as resolved
+        batch.update(db.collection('reports').doc(req.params.id), {
+            status: 'resolved',
+            resolution: 'user_banned',
+            resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+            resolvedBy: req.user?.uid,
+        });
+
+        await batch.commit();
+
+        // Optionally disable Firebase Auth account
+        try {
+            await admin.auth().updateUser(authorId, { disabled: true });
+        } catch (authError) {
+            console.warn('Could not disable auth user:', authError);
+        }
+
+        res.json({ success: true, bannedUserId: authorId, deletedPostId: postId });
+    } catch (error) {
+        console.error('Error banning user:', error);
+        res.status(500).json({ error: 'Failed to ban user' });
+    }
+});
+
+// ============================================
 // ============================================
 // ANALYTICS
 // ============================================

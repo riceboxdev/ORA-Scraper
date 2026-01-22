@@ -295,6 +295,7 @@ function handleRoute() {
         '/dashboard': 'dashboard',
         '/sources': 'sources',
         '/images': 'images',
+        '/moderation': 'moderation',
         '/posts': 'posts',
         '/users': 'users',
         '/boards': 'boards',
@@ -349,6 +350,9 @@ function renderPage(page) {
             break;
         case 'analytics':
             renderAnalyticsPage(container);
+            break;
+        case 'moderation':
+            renderModerationPage(container);
             break;
         default:
             container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🤷</div><div class="empty-state-title">Page Not Found</div></div>';
@@ -2123,8 +2127,12 @@ function renderUsersTable() {
                 <td class="text-xs text-muted">${date ? getRelativeTime(date) : 'Unknown'}</td>
                 <td><span class="badge ${banClass}">${user.banned ? 'Banned' : 'Active'}</span></td>
                 <td>
-                    <div class="flex gap-2">
-                        <button class="btn btn-sm btn-secondary" onclick="viewUserDetails('${user.id}')">View</button>
+                    <div class="flex gap-2 justify-end">
+                        <button class="btn btn-sm btn-secondary" onclick="viewUserDetails('${user.id}')" title="View Details">👤</button>
+                        <button class="btn btn-sm ${user.banned ? 'btn-success' : 'btn-warning'}" onclick="toggleUserBan('${user.id}', ${!user.banned})" title="${user.banned ? 'Unban' : 'Ban'}">
+                            ${user.banned ? '✅' : '🚫'}
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteCmsUser('${user.id}')" title="Delete User">🗑️</button>
                     </div>
                 </td>
             </tr>
@@ -2187,6 +2195,17 @@ async function viewUserDetails(id) {
                 <div class="card-header"><span class="card-title">Admin Actions</span></div>
                 <div class="card-body">
                     <div class="form-group mb-4">
+                        <label class="form-label">Admin Status</label>
+                        <div class="flex items-center gap-4">
+                            <span class="text-sm">${user.isAdmin ? 'User is an Admin' : 'User is a regular member'}</span>
+                            <button class="btn btn-sm ${user.isAdmin ? 'btn-warning' : 'btn-secondary'}" 
+                                onclick="toggleUserAdmin('${user.id}', ${!user.isAdmin})">
+                                ${user.isAdmin ? 'Revoke Admin' : 'Make Admin'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group mb-4">
                         <label class="form-label">Ban Status</label>
                         <div class="flex items-center gap-4">
                             <span class="text-sm">${user.banned ? 'User is currently banned' : 'User is active'}</span>
@@ -2214,6 +2233,24 @@ async function viewUserDetails(id) {
 
 function closeUserModal() {
     document.getElementById('userModal').classList.remove('visible');
+}
+
+
+async function toggleUserAdmin(id, isAdmin) {
+    if (!confirm(`Are you sure you want to ${isAdmin ? 'promote this user to Admin' : 'revoke Admin rights'}?`)) return;
+
+    try {
+        await api(`/api/cms/users/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ isAdmin }),
+        });
+        showToast(`User ${isAdmin ? 'promoted to Admin' : 'demoted'}`, 'success');
+        viewUserDetails(id);
+        loadCmsUsers();
+    } catch (e) {
+        console.error('Failed to update user:', e);
+        showToast('Failed to update user', 'error');
+    }
 }
 
 async function toggleUserBan(id, banned) {
@@ -3145,6 +3182,216 @@ function renderGrowthChart(growth) {
             }
         }
     });
+}
+
+// ============================================
+// MODERATION PAGE
+// ============================================
+
+let moderationReports = [];
+
+async function renderModerationPage(container) {
+    container.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Moderation Queue</h1>
+            <div class="page-actions">
+                <button class="btn btn-secondary" onclick="loadModerationReports()">
+                    ↻ Refresh
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body" id="moderationListContainer">
+                <div class="text-muted text-center">Loading reports...</div>
+            </div>
+        </div>
+    `;
+
+    await loadModerationReports();
+}
+
+async function loadModerationReports() {
+    try {
+        const data = await api('/api/cms/reports?status=pending');
+        moderationReports = data.reports || [];
+        renderModerationList();
+    } catch (e) {
+        console.error('Failed to load reports:', e);
+        const container = document.getElementById('moderationListContainer');
+        if (container) {
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    Failed to load reports. Please try again.
+                </div>
+            `;
+        }
+    }
+}
+
+function renderModerationList() {
+    const container = document.getElementById('moderationListContainer');
+    if (!container) return;
+
+    if (moderationReports.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">✅</div>
+                <div class="empty-state-title">No pending reports</div>
+                <div class="empty-state-description">All caught up! Check back later.</div>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="flex flex-col gap-4">
+            ${moderationReports.map(report => renderReportCard(report)).join('')}
+        </div>
+    `;
+}
+
+function renderReportCard(report) {
+    const post = report.post;
+    const reporter = report.reporter;
+    const postAuthor = report.postAuthor;
+    const createdAt = report.createdAt ? new Date(report.createdAt) : null;
+    const timeStr = createdAt ? getRelativeTime(createdAt) : 'Unknown';
+
+    // Get thumbnail from post content
+    let thumbnailUrl = '';
+    if (post?.content?.thumbnailUrl) {
+        thumbnailUrl = post.content.thumbnailUrl;
+    } else if (post?.content?.url) {
+        thumbnailUrl = post.content.url;
+    }
+
+    const reasonLabels = {
+        spam: "It's spam",
+        inappropriate: 'Inappropriate content',
+        harassment: 'Harassment or hate speech',
+        violence: 'Violence or dangerous organizations',
+        copyright: 'Intellectual property violation',
+        other: 'Other'
+    };
+
+    return `
+        <div class="report-card" data-report-id="${report.id}" style="
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        ">
+            <!-- Post Thumbnail -->
+            <div style="flex-shrink: 0; width: 120px;">
+                ${thumbnailUrl ? `
+                    <img src="${escapeHtml(thumbnailUrl)}" 
+                         alt="Post thumbnail" 
+                         style="width: 120px; height: 120px; object-fit: cover; border-radius: 8px; cursor: pointer;"
+                         onclick="viewReportedPost('${report.postId}')"
+                    />
+                ` : `
+                    <div style="width: 120px; height: 120px; background: var(--bg-tertiary); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                        <span style="font-size: 24px; opacity: 0.5;">🖼️</span>
+                    </div>
+                `}
+            </div>
+            
+            <!-- Report Info -->
+            <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                    <div>
+                        <span class="badge badge-warning" style="font-size: 11px;">${reasonLabels[report.reason] || report.reason}</span>
+                        <span class="text-muted text-xs" style="margin-left: 8px;">${timeStr}</span>
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 8px;">
+                    <div class="text-sm">
+                        <span class="text-muted">Reported by:</span> 
+                        <strong>${escapeHtml(reporter?.username || reporter?.displayName || 'Unknown')}</strong>
+                    </div>
+                    <div class="text-sm">
+                        <span class="text-muted">Post Author:</span> 
+                        <strong>${escapeHtml(postAuthor?.username || postAuthor?.displayName || 'Unknown')}</strong>
+                    </div>
+                </div>
+                
+                ${report.description ? `
+                    <div class="text-sm text-muted" style="margin-bottom: 12px; font-style: italic;">
+                        "${escapeHtml(report.description)}"
+                    </div>
+                ` : ''}
+                
+                <!-- Actions -->
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button class="btn btn-sm btn-secondary" onclick="dismissReport('${report.id}')">
+                        ✓ Dismiss
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteReportedPost('${report.id}')">
+                        🗑️ Delete Post
+                    </button>
+                    <button class="btn btn-sm" onclick="banReportedUser('${report.id}')" 
+                            style="background: #7f1d1d; border-color: #7f1d1d;">
+                        🚫 Ban User
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function viewReportedPost(postId) {
+    // Open post in new tab or show modal
+    // For now, let's just log or we could navigate to post page
+    window.open(`https://console.firebase.google.com/project/angles-423a4/firestore/data/~2FuserPosts~2F${postId}`, '_blank');
+}
+
+async function dismissReport(reportId) {
+    if (!confirm('Dismiss this report? The post will remain visible.')) return;
+
+    try {
+        await api(`/api/cms/reports/${reportId}/resolve`, { method: 'POST' });
+        showToast('Report dismissed', 'success');
+        await loadModerationReports();
+    } catch (e) {
+        console.error('Failed to dismiss report:', e);
+        showToast('Failed to dismiss report', 'error');
+    }
+}
+
+async function deleteReportedPost(reportId) {
+    if (!confirm('Delete this post? This action cannot be undone.')) return;
+
+    try {
+        await api(`/api/cms/reports/${reportId}/delete-post`, { method: 'POST' });
+        showToast('Post deleted and report resolved', 'success');
+        await loadModerationReports();
+    } catch (e) {
+        console.error('Failed to delete post:', e);
+        showToast('Failed to delete post', 'error');
+    }
+}
+
+async function banReportedUser(reportId) {
+    const reason = prompt('Enter ban reason (optional):', 'Violation of community guidelines');
+    if (reason === null) return; // Cancelled
+
+    if (!confirm('Ban this user? This will also delete the reported post and disable their account.')) return;
+
+    try {
+        await api(`/api/cms/reports/${reportId}/ban-user`, {
+            method: 'POST',
+            body: JSON.stringify({ banReason: reason })
+        });
+        showToast('User banned and post deleted', 'success');
+        await loadModerationReports();
+    } catch (e) {
+        console.error('Failed to ban user:', e);
+        showToast('Failed to ban user', 'error');
+    }
 }
 
 // ============================================
