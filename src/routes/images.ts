@@ -197,6 +197,54 @@ router.delete('/failed/clear', (_req: Request, res: Response) => {
     }
 });
 
+// Delete image and associated post
+router.delete('/:id', async (req: Request, res: Response) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+
+        // 1. Try to find in scraped_images to get postId
+        const image = db.prepare('SELECT postId, imageUrl FROM scraped_images WHERE id = ?').get(id) as any;
+
+        if (image) {
+            // Delete from Firestore if postId exists
+            if (image.postId) {
+                try {
+                    await firestore.collection('userPosts').doc(image.postId).delete();
+                } catch (firestoreError) {
+                    console.error(`  Failed to delete Firestore post ${image.postId}:`, firestoreError);
+                    // Continue anyway to clean up local DB
+                }
+            }
+
+            // Delete from local SQLite
+            db.prepare('DELETE FROM scraped_images WHERE id = ?').run(id);
+            res.json({ success: true, message: 'Image and post deleted' });
+            return;
+        }
+
+        // 2. Try to find in failed_images
+        const failedImage = db.prepare('SELECT id FROM failed_images WHERE id = ?').get(id);
+        if (failedImage) {
+            db.prepare('DELETE FROM failed_images WHERE id = ?').run(id);
+            res.json({ success: true, message: 'Failed image entry deleted' });
+            return;
+        }
+
+        // 3. Try to find in filtered_images
+        const filteredImage = db.prepare('SELECT id FROM filtered_images WHERE id = ?').get(id);
+        if (filteredImage) {
+            db.prepare('DELETE FROM filtered_images WHERE id = ?').run(id);
+            res.json({ success: true, message: 'Filtered image entry deleted' });
+            return;
+        }
+
+        res.status(404).json({ error: 'Image not found' });
+    } catch (error) {
+        console.error('Error deleting image:', error);
+        res.status(500).json({ error: 'Failed to delete image' });
+    }
+});
+
 // Helper function to extract domain from URL
 function extractDomain(url: string): string {
     try {
