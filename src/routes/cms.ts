@@ -721,6 +721,102 @@ router.delete('/ideas/:id', async (req: Request, res: Response) => {
 });
 
 // ============================================
+// IDEA SUGGESTIONS MANAGEMENT
+// ============================================
+
+/**
+ * GET /api/cms/ideas/suggestions - List pending suggestions
+ */
+router.get('/ideas/suggestions', async (req: Request, res: Response) => {
+    try {
+        const snapshot = await db.collection('ideaSuggestions')
+            .where('status', '==', 'pending')
+            .orderBy('suggestedAt', 'desc')
+            .get();
+
+        const suggestions = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+        }));
+
+        res.json({ suggestions });
+    } catch (error) {
+        console.error('Error fetching suggestions:', error);
+        res.status(500).json({ error: 'Failed to fetch suggestions' });
+    }
+});
+
+/**
+ * POST /api/cms/ideas/suggestions/:id/approve - Approve suggestion (create idea)
+ */
+router.post('/ideas/suggestions/:id/approve', async (req: Request, res: Response) => {
+    try {
+        const suggestionId = req.params.id;
+        const suggestionDoc = await db.collection('ideaSuggestions').doc(suggestionId).get();
+
+        if (!suggestionDoc.exists) {
+            return res.status(404).json({ error: 'Suggestion not found' });
+        }
+
+        const suggestion = suggestionDoc.data()!;
+        const batch = db.batch();
+
+        // 1. Create the new Category (Idea)
+        const newIdeaRef = db.collection('categories').doc();
+        batch.set(newIdeaRef, {
+            name: suggestion.name,
+            slug: suggestion.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
+            description: suggestion.description,
+            color: suggestion.suggestedColor,
+            iconName: suggestion.suggestedIcon,
+            postCount: 0,
+            thumbnailUrls: suggestion.thumbnailUrls || [],
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            source: 'suggestion-approval',
+            originalSuggestionId: suggestionId
+        });
+
+        // 2. Update status of suggestion to approved
+        batch.update(db.collection('ideaSuggestions').doc(suggestionId), {
+            status: 'approved',
+            approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+            approvedBy: req.user?.uid,
+            createdCategoryId: newIdeaRef.id
+        });
+
+        await batch.commit();
+
+        res.json({
+            success: true,
+            ideaId: newIdeaRef.id,
+            message: 'Suggestion approved and category created'
+        });
+
+    } catch (error) {
+        console.error('Error approving suggestion:', error);
+        res.status(500).json({ error: 'Failed to approve suggestion' });
+    }
+});
+
+/**
+ * POST /api/cms/ideas/suggestions/:id/reject - Reject suggestion
+ */
+router.post('/ideas/suggestions/:id/reject', async (req: Request, res: Response) => {
+    try {
+        await db.collection('ideaSuggestions').doc(req.params.id).update({
+            status: 'rejected',
+            rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
+            rejectedBy: req.user?.uid
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error rejecting suggestion:', error);
+        res.status(500).json({ error: 'Failed to reject suggestion' });
+    }
+});
+
+// ============================================
 // ANALYTICS
 // ============================================
 

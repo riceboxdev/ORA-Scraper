@@ -58,6 +58,7 @@ const state = {
     cmsUsers: [],
     cmsBoards: [],
     cmsIdeas: [],
+    cmsSuggestions: [],
     cmsAnalytics: null,
     cmsLastId: null,
     cmsHasMore: false,
@@ -2396,12 +2397,60 @@ async function renderIdeasPage(container) {
             </div>
         </div>
 
-        <div id="ideasGrid" class="ideas-grid">
-            <div class="col-span-full text-center text-muted">Loading ideas...</div>
+        <div class="tabs mb-6 border-b border-white/10 flex gap-6">
+            <button class="tab-btn active" id="tab-active" onclick="switchIdeaTab('active')" 
+                style="padding-bottom: 0.75rem; border-bottom: 2px solid var(--primary); color: white;">
+                Active Ideas
+            </button>
+            <button class="tab-btn" id="tab-suggestions" onclick="switchIdeaTab('suggestions')"
+                style="padding-bottom: 0.75rem; border-bottom: 2px solid transparent; color: var(--text-muted);">
+                Suggestions <span id="suggestionCount" class="badge badge-secondary ml-1" style="font-size: 10px; opacity: 0;">0</span>
+            </button>
+        </div>
+
+        <!-- Active Ideas View -->
+        <div id="activeIdeasView">
+            <div id="ideasGrid" class="ideas-grid">
+                <div class="col-span-full text-center text-muted">Loading ideas...</div>
+            </div>
+        </div>
+
+        <!-- Suggestions View -->
+        <div id="suggestionsView" style="display: none;">
+            <div id="suggestionsList" class="flex flex-col gap-4">
+                <div class="text-center text-muted">Loading suggestions...</div>
+            </div>
         </div>
     `;
 
-    await loadCmsIdeas();
+    // Load initial data
+    loadCmsIdeas();
+    loadCmsSuggestions();
+}
+
+function switchIdeaTab(tab) {
+    const activeView = document.getElementById('activeIdeasView');
+    const suggestionsView = document.getElementById('suggestionsView');
+    const activeTab = document.getElementById('tab-active');
+    const suggestionsTab = document.getElementById('tab-suggestions');
+
+    if (tab === 'active') {
+        activeView.style.display = 'grid';
+        suggestionsView.style.display = 'none';
+
+        activeTab.style.borderBottomColor = 'var(--primary)';
+        activeTab.style.color = 'white';
+        suggestionsTab.style.borderBottomColor = 'transparent';
+        suggestionsTab.style.color = 'var(--text-muted)';
+    } else {
+        activeView.style.display = 'none';
+        suggestionsView.style.display = 'block';
+
+        activeTab.style.borderBottomColor = 'transparent';
+        activeTab.style.color = 'var(--text-muted)';
+        suggestionsTab.style.borderBottomColor = 'var(--primary)';
+        suggestionsTab.style.color = 'white';
+    }
 }
 
 async function loadCmsIdeas() {
@@ -2415,6 +2464,26 @@ async function loadCmsIdeas() {
     } catch (e) {
         console.error('Failed to load ideas:', e);
         grid.innerHTML = '<div class="col-span-full text-center text-danger">Failed to load ideas</div>';
+    }
+}
+
+async function loadCmsSuggestions() {
+    const list = document.getElementById('suggestionsList');
+    const badge = document.getElementById('suggestionCount');
+
+    try {
+        const data = await api('/api/cms/ideas/suggestions');
+        state.cmsSuggestions = data.suggestions;
+
+        if (badge) {
+            badge.textContent = state.cmsSuggestions.length;
+            badge.style.opacity = state.cmsSuggestions.length > 0 ? '1' : '0';
+        }
+
+        if (list) renderSuggestionsList();
+    } catch (e) {
+        console.error('Failed to load suggestions:', e);
+        if (list) list.innerHTML = '<div class="text-center text-danger">Failed to load suggestions</div>';
     }
 }
 
@@ -2444,6 +2513,144 @@ function renderIdeasGrid() {
             </div>
         </div>
     `).join('');
+}
+
+function renderSuggestionsList() {
+    const list = document.getElementById('suggestionsList');
+    if (!list) return;
+
+    if (state.cmsSuggestions.length === 0) {
+        list.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">✨</div>
+                <div class="empty-state-title">No new suggestions</div>
+                <div class="empty-state-description">The periodic discovery job will add new ideas here.</div>
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = state.cmsSuggestions.map(s => {
+        const thumbnails = s.thumbnailUrls || [];
+
+        return `
+        <div class="card p-4" id="suggestion-${s.id}">
+            <div class="flex gap-6">
+                <!-- Visuals -->
+                <div class="flex-shrink-0 w-48">
+                    <div class="grid grid-cols-2 gap-1 rounded overflow-hidden aspect-video bg-black/20">
+                        ${thumbnails.slice(0, 4).map(url => `
+                            <div class="bg-cover bg-center h-full" style="background-image: url('${escapeHtml(url)}')"></div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Content -->
+                <div class="flex-grow">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="font-bold text-lg">${escapeHtml(s.name)}</h3>
+                                <span class="badge badge-secondary">${Math.round(s.confidence * 100)}% Match</span>
+                            </div>
+                            <p class="text-sm text-muted mt-1">${escapeHtml(s.description)}</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="btn btn-sm btn-secondary" onclick="rejectSuggestion('${s.id}')">Start Over</button>
+                            <button class="btn btn-sm btn-primary" onclick="approveSuggestion('${s.id}')">Approve Idea</button>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-4 text-xs mt-3 p-3 bg-white/5 rounded-lg border border-white/5">
+                        <div class="flex items-center gap-2">
+                            <span class="text-muted">Color:</span>
+                            <span class="w-4 h-4 rounded-full border border-white/20" style="background: ${s.suggestedColor}"></span>
+                            <code>${s.suggestedColor}</code>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-muted">Icon:</span>
+                            <code>${s.suggestedIcon}</code>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-muted">Tags:</span>
+                            <span class="text-muted italic">${(s.matchingTags || []).slice(0, 5).join(', ')}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        `;
+    }).join('');
+}
+
+async function approveSuggestion(id) {
+    const card = document.getElementById(`suggestion-${id}`);
+    const btn = card?.querySelector('.btn-primary');
+    if (btn) {
+        btn.textContent = 'Approving...';
+        btn.disabled = true;
+    }
+
+    try {
+        await api(`/api/cms/ideas/suggestions/${id}/approve`, { method: 'POST' });
+        showToast('Idea approved and created!', 'success');
+
+        // Remove locally
+        if (card) {
+            card.style.opacity = '0';
+            setTimeout(() => card.remove(), 300);
+        }
+
+        // Refresh both lists
+        state.cmsSuggestions = state.cmsSuggestions.filter(s => s.id !== id);
+        updateSuggestionCount();
+        loadCmsIdeas(); // Reload active ideas
+
+    } catch (e) {
+        console.error('Failed to approve suggestion:', e);
+        showToast('Failed to approve suggestion', 'error');
+        if (btn) {
+            btn.textContent = 'Approve Idea';
+            btn.disabled = false;
+        }
+    }
+}
+
+async function rejectSuggestion(id) {
+    if (!confirm('Reject this suggestion? It will not be shown again.')) return;
+
+    const card = document.getElementById(`suggestion-${id}`);
+
+    try {
+        await api(`/api/cms/ideas/suggestions/${id}/reject`, { method: 'POST' });
+        showToast('Suggestion rejected', 'info');
+
+        // Remove locally
+        if (card) {
+            card.style.opacity = '0';
+            setTimeout(() => card.remove(), 300);
+        }
+
+        // Refresh list
+        state.cmsSuggestions = state.cmsSuggestions.filter(s => s.id !== id);
+        updateSuggestionCount();
+    } catch (e) {
+        console.error('Failed to reject:', e);
+        showToast('Failed to reject suggestion', 'error');
+    }
+}
+
+function updateSuggestionCount() {
+    const badge = document.getElementById('suggestionCount');
+    if (badge) {
+        badge.textContent = state.cmsSuggestions.length;
+        badge.style.opacity = state.cmsSuggestions.length > 0 ? '1' : '0';
+    }
+
+    // If empty after removal
+    if (state.cmsSuggestions.length === 0) {
+        renderSuggestionsList();
+    }
 }
 
 function openAddIdeaModal() {
