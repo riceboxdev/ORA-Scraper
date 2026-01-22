@@ -81,7 +81,9 @@ function initAuth() {
 
                 // Verify admin access with server
                 const result = await verifyAdminAccess();
-                if (result.isAdmin) {
+
+                // Allow any authenticated user for now
+                if (result.authenticated) {
                     showApp();
                     document.getElementById('userEmail').textContent = user.email;
                     initRouter();
@@ -92,7 +94,7 @@ function initAuth() {
                         authToken = await user.getIdToken(true);
                     }, 50 * 60 * 1000); // Refresh every 50 minutes
                 } else {
-                    showLoginError('Access denied. Admin privileges required.');
+                    showLoginError('Access denied. Authentication failed.');
                     await auth.signOut();
                 }
             } catch (error) {
