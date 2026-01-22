@@ -18,7 +18,7 @@ db.pragma('journal_mode = WAL');
 db.exec(`
     -- Sources table
     CREATE TABLE IF NOT EXISTS sources (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT PRIMARY KEY,
         type TEXT NOT NULL CHECK(type IN ('unsplash', 'reddit', 'url')),
         query TEXT NOT NULL,
         enabled INTEGER DEFAULT 1,
@@ -39,8 +39,7 @@ db.exec(`
         sourceId TEXT,
         imageUrl TEXT NOT NULL UNIQUE,
         postId TEXT,
-        scrapedAt TEXT DEFAULT (datetime('now')),
-        FOREIGN KEY (sourceId) REFERENCES sources(id)
+        scrapedAt TEXT DEFAULT (datetime('now'))
     );
 
     -- Stats table
@@ -70,8 +69,7 @@ db.exec(`
         qualityScore REAL,
         qualityType TEXT,
         filterReason TEXT,
-        filteredAt TEXT DEFAULT (datetime('now')),
-        FOREIGN KEY (sourceId) REFERENCES sources(id)
+        filteredAt TEXT DEFAULT (datetime('now'))
     );
 
     -- Job execution history
@@ -99,22 +97,13 @@ initSettings.run('lastRunAt', '');
 
 // Prepared statements
 export const queries: Record<string, Database.Statement> = {
-    // Sources
-    getAllSources: db.prepare('SELECT * FROM sources ORDER BY createdAt DESC'),
-    getEnabledSources: db.prepare('SELECT * FROM sources WHERE enabled = 1'),
-    getSourceById: db.prepare('SELECT * FROM sources WHERE id = ?'),
-    createSource: db.prepare('INSERT INTO sources (type, query) VALUES (?, ?)'),
-    updateSource: db.prepare('UPDATE sources SET type = ?, query = ?, enabled = ? WHERE id = ?'),
-    deleteSource: db.prepare('DELETE FROM sources WHERE id = ?'),
-    updateSourceStats: db.prepare(`UPDATE sources SET lastScrapedAt = datetime('now'), totalScraped = totalScraped + ? WHERE id = ?`),
+    // deduplication check only
+    isImageScraped: db.prepare('SELECT 1 FROM scraped_images WHERE imageUrl = ?'),
+    markImageScraped: db.prepare('INSERT INTO scraped_images (sourceId, imageUrl, postId) VALUES (?, ?, ?)'),
 
     // Settings
     getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
     setSetting: db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'),
-
-    // Deduplication
-    isImageScraped: db.prepare('SELECT 1 FROM scraped_images WHERE imageUrl = ?'),
-    markImageScraped: db.prepare('INSERT INTO scraped_images (sourceId, imageUrl, postId) VALUES (?, ?, ?)'),
 
     // Stats
     getTodayStats: db.prepare(`
