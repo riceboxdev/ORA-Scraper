@@ -27,7 +27,7 @@ if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
     self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 }
 const appCheck = firebase.appCheck();
-appCheck.activate('6LdL7IsqAAAAAO8FfyuVx_m0rnqYK1FnuG4fNxzb', { isTokenAutoRefreshEnabled: true });
+appCheck.activate('6LcxIFEsAAAAANSvcZkmgF24oZyvKOr1kmdInVKW', { isTokenAutoRefreshEnabled: true });
 
 // Auth state
 let currentUser = null;
