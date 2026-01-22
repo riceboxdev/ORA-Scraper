@@ -2398,12 +2398,10 @@ async function renderIdeasPage(container) {
         </div>
 
         <div class="tabs mb-6 border-b border-white/10 flex gap-6">
-            <button class="tab-btn active" id="tab-active" onclick="switchIdeaTab('active')" 
-                style="padding-bottom: 0.75rem; border-bottom: 2px solid var(--primary); color: white;">
+            <button class="tab active" id="tab-active" onclick="switchIdeaTab('active')">
                 Active Ideas
             </button>
-            <button class="tab-btn" id="tab-suggestions" onclick="switchIdeaTab('suggestions')"
-                style="padding-bottom: 0.75rem; border-bottom: 2px solid transparent; color: var(--text-muted);">
+            <button class="tab" id="tab-suggestions" onclick="switchIdeaTab('suggestions')">
                 Suggestions <span id="suggestionCount" class="badge badge-secondary ml-1" style="font-size: 10px; opacity: 0;">0</span>
             </button>
         </div>
@@ -2438,18 +2436,14 @@ function switchIdeaTab(tab) {
         activeView.style.display = 'grid';
         suggestionsView.style.display = 'none';
 
-        activeTab.style.borderBottomColor = 'var(--primary)';
-        activeTab.style.color = 'white';
-        suggestionsTab.style.borderBottomColor = 'transparent';
-        suggestionsTab.style.color = 'var(--text-muted)';
+        activeTab.classList.add('active');
+        suggestionsTab.classList.remove('active');
     } else {
         activeView.style.display = 'none';
         suggestionsView.style.display = 'block';
 
-        activeTab.style.borderBottomColor = 'transparent';
-        activeTab.style.color = 'var(--text-muted)';
-        suggestionsTab.style.borderBottomColor = 'var(--primary)';
-        suggestionsTab.style.color = 'white';
+        activeTab.classList.remove('active');
+        suggestionsTab.classList.add('active');
     }
 }
 
@@ -2499,9 +2493,6 @@ function renderIdeasGrid() {
     grid.innerHTML = state.cmsIdeas.map(idea => `
         <div class="idea-card" onclick="viewIdeaDetails('${idea.id}')">
             <div class="idea-card-header">
-                <div class="idea-icon-circle" style="background: ${idea.color || 'var(--accent-primary-muted)'}; color: ${idea.color ? 'white' : 'var(--accent-primary)'}">
-                    ${escapeHtml(idea.iconName?.split(':').pop() || '💡')}
-                </div>
                 <div>
                     <div class="font-bold">${escapeHtml(idea.name)}</div>
                     <div class="text-xs text-muted">/${escapeHtml(idea.slug)}</div>
