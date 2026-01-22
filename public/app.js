@@ -7,14 +7,13 @@
 // FIREBASE CONFIG & AUTH
 // ============================================
 
-// Firebase configuration - Update with your project config
+// Firebase configuration - angles-423a4 project
 const firebaseConfig = {
-    apiKey: "AIzaSyCe08E09lI__H1DmCR3gQPMdF2pQG2IpDI",
-    authDomain: "ora-rethink.firebaseapp.com",
-    projectId: "ora-rethink",
-    storageBucket: "ora-rethink.firebasestorage.app",
-    messagingSenderId: "529633812236",
-    appId: "1:529633812236:web:c27ac58bc1f7c85d837c05"
+    apiKey: "AIzaSyA65aFDlUYlYo24el93ZEdd0ErEiuQzB3A",
+    authDomain: "angles-423a4.firebaseapp.com",
+    projectId: "angles-423a4",
+    storageBucket: "angles-423a4.firebasestorage.app",
+    messagingSenderId: "1024758653829",
 };
 
 // Initialize Firebase
