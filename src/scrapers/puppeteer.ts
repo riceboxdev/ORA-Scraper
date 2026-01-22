@@ -152,6 +152,22 @@ export class PuppeteerScraper extends BaseScraper {
                             src = src.replace('/236x/', '/736x/');
                         }
 
+                        // SPECIAL HANDLING: Upgrade Twitter/X URLs to high-res
+                        if (src.includes('pbs.twimg.com/media/')) {
+                            try {
+                                if (src.includes('?')) {
+                                    const twitterUrl = new URL(src);
+                                    twitterUrl.searchParams.set('name', 'orig');
+                                    src = twitterUrl.toString();
+                                } else {
+                                    // Handle :small or append if missing
+                                    src = src.split(':')[0] + '?name=orig';
+                                }
+                            } catch (e) {
+                                // Fallback
+                            }
+                        }
+
                         const absoluteUrl = new URL(src, current.url).toString();
                         if (seenUrls.has(absoluteUrl)) continue;
                         seenUrls.add(absoluteUrl);
