@@ -20,6 +20,15 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 
+// Initialize App Check with debug token for development
+// In production, use reCAPTCHA Enterprise or v3
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+    // Enable debug mode for local development
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+}
+const appCheck = firebase.appCheck();
+appCheck.activate('6LdL7IsqAAAAAO8FfyuVx_m0rnqYK1FnuG4fNxzb', { isTokenAutoRefreshEnabled: true });
+
 // Auth state
 let currentUser = null;
 let authToken = null;
