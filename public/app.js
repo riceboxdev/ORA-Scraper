@@ -2592,7 +2592,10 @@ async function generateSuggestions() {
     }
 
     try {
-        await api('/api/cms/ideas/generate', 'POST', { sampleSize: 300 }); // Increase sample size for better results
+        await api('/api/cms/ideas/generate', {
+            method: 'POST',
+            body: JSON.stringify({ sampleSize: 300 })
+        });
         showToast('Analysis complete! Refreshing suggestions...', 'success');
 
         // Wait a moment for firestore to sync
