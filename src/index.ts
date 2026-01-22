@@ -16,6 +16,7 @@ import sourcesRouter from './routes/sources.js';
 import jobsRouter, { setRunScrapeFunction, markLastRun } from './routes/jobs.js';
 import imagesRouter from './routes/images.js';
 import settingsRouter from './routes/settings.js';
+import cmsRouter from './routes/cms.js';
 import { runScrapeJob } from './services/scraper.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -45,6 +46,7 @@ app.use('/api/sources', requireAdminAuth, sourcesRouter);
 app.use('/api/jobs', requireAdminAuth, jobsRouter);
 app.use('/api/images', requireAdminAuth, imagesRouter);
 app.use('/api/settings', requireAdminAuth, settingsRouter);
+app.use('/api/cms', requireAdminAuth, cmsRouter);
 
 // Fallback to index.html for SPA
 app.get('*', (_req, res) => {

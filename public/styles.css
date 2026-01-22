@@ -1380,3 +1380,159 @@ a:hover {
     color: var(--success);
     border: 1px solid rgba(34, 197, 94, 0.3);
 }
+
+/* ============================================
+   CMS SPECIFIC STYLES
+   ============================================ */
+
+/* CMS Data Tables */
+.cms-table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-4);
+    gap: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.cms-search-input {
+    flex: 1;
+    min-width: 200px;
+    max-width: 400px;
+}
+
+.cms-table {
+    width: 100%;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-subtle);
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.cms-table th {
+    background: var(--bg-tertiary);
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    font-size: var(--text-xs);
+    font-weight: var(--font-semibold);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.cms-table td {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: var(--text-sm);
+    vertical-align: middle;
+}
+
+.cms-table tr:last-child td {
+    border-bottom: none;
+}
+
+.cms-table tr:hover {
+    background: var(--bg-hover);
+}
+
+.cms-thumb {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+    background: var(--bg-elevated);
+}
+
+.cms-user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    object-fit: cover;
+    background: var(--bg-elevated);
+}
+
+.cms-status-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+/* User Profile in CMS */
+.user-detail-header {
+    display: flex;
+    gap: var(--space-6);
+    margin-bottom: var(--space-6);
+}
+
+.user-detail-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: var(--radius-full);
+    object-fit: cover;
+    border: 2px solid var(--border-default);
+}
+
+.user-detail-info h2 {
+    font-size: var(--text-xl);
+    margin-bottom: var(--space-1);
+}
+
+/* Analytics */
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--space-6);
+}
+
+.chart-container {
+    height: 300px;
+    width: 100%;
+}
+
+/* Ideas (Categories) */
+.ideas-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--space-4);
+}
+
+.idea-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+    transition: transform var(--transition-fast);
+    cursor: pointer;
+}
+
+.idea-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--accent-primary);
+}
+
+.idea-card-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.idea-icon-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.idea-stats {
+    display: flex;
+    gap: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+}

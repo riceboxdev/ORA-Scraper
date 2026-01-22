@@ -42,7 +42,7 @@ let authToken = null;
 // ============================================
 
 const state = {
-    // Data
+    // Data (Scraper)
     sources: [],
     settings: {},
     stats: {},
@@ -53,12 +53,26 @@ const state = {
     jobHistory: [],
     currentJob: null,
 
+    // Data (CMS)
+    cmsPosts: [],
+    cmsUsers: [],
+    cmsBoards: [],
+    cmsIdeas: [],
+    cmsAnalytics: null,
+    cmsLastId: null,
+    cmsHasMore: false,
+
     // UI State
     currentPage: 'dashboard',
     editingSourceId: null,
     pendingDeleteId: null,
     selectedSources: new Set(),
     imagesTab: 'recent',
+    cmsSearchQuery: '',
+    cmsFilters: {
+        status: '',
+        moderationStatus: '',
+    },
 
     // Polling
     statusInterval: null,
@@ -272,6 +286,11 @@ function handleRoute() {
         '/dashboard': 'dashboard',
         '/sources': 'sources',
         '/images': 'images',
+        '/posts': 'posts',
+        '/users': 'users',
+        '/boards': 'boards',
+        '/ideas': 'ideas',
+        '/analytics': 'analytics',
         '/settings': 'settings',
     };
 
@@ -307,6 +326,21 @@ function renderPage(page) {
         case 'settings':
             renderSettingsPage(container);
             break;
+        case 'posts':
+            renderPostsPage(container);
+            break;
+        case 'users':
+            renderUsersPage(container);
+            break;
+        case 'boards':
+            renderBoardsPage(container);
+            break;
+        case 'ideas':
+            renderIdeasPage(container);
+            break;
+        case 'analytics':
+            renderAnalyticsPage(container);
+            break;
         default:
             container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🤷</div><div class="empty-state-title">Page Not Found</div></div>';
     }
@@ -327,7 +361,8 @@ async function renderDashboard(container) {
             </div>
         </div>
 
-        <!-- Stats Cards -->
+        <!-- Stats Cards (Scraper) -->
+        <div class="nav-section-title mb-2" style="padding-left: 0;">Scraper Status</div>
         <div class="stats-grid mb-6">
             <div class="stat-card">
                 <div class="stat-value" id="statScraped">-</div>
@@ -344,6 +379,27 @@ async function renderDashboard(container) {
             <div class="stat-card">
                 <div class="stat-value danger" id="statFailed">-</div>
                 <div class="stat-label">Failed</div>
+            </div>
+        </div>
+
+        <!-- Stats Cards (Platform CMS) -->
+        <div class="nav-section-title mb-2" style="padding-left: 0;">Platform Overview</div>
+        <div id="platformOverviewGrid" class="stats-grid mb-6">
+            <div class="stat-card">
+                <div class="stat-value" id="statUsers">-</div>
+                <div class="stat-label">Total Users</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statPosts">-</div>
+                <div class="stat-label">Total Posts</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statIdeas">-</div>
+                <div class="stat-label">Active Ideas</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value warning" id="statAwaitingMod">-</div>
+                <div class="stat-label">Awaiting Mod</div>
             </div>
         </div>
 
@@ -405,6 +461,7 @@ async function renderDashboard(container) {
 
 async function loadStats() {
     try {
+        // Scraper stats
         const stats = await api('/api/jobs/stats');
         state.stats = stats;
 
@@ -412,6 +469,14 @@ async function loadStats() {
         document.getElementById('statUploaded').textContent = stats.imagesUploaded || 0;
         document.getElementById('statFiltered').textContent = stats.qualityFiltered || 0;
         document.getElementById('statFailed').textContent = stats.imagesFailed || 0;
+
+        // Platform CMS stats
+        const cmsOverview = await api('/api/cms/analytics/overview');
+        document.getElementById('statUsers').textContent = cmsOverview.totals.users.toLocaleString();
+        document.getElementById('statPosts').textContent = cmsOverview.totals.posts.toLocaleString();
+        document.getElementById('statIdeas').textContent = cmsOverview.totals.ideas.toLocaleString();
+        document.getElementById('statAwaitingMod').textContent = cmsOverview.moderation.awaitingModeration.toLocaleString();
+
     } catch (e) {
         console.error('Failed to load stats:', e);
     }
@@ -1440,6 +1505,980 @@ async function clearFailedCache() {
         console.error('Failed to clear cache:', e);
         showToast('Clear cache API not available yet', 'warning');
     }
+}
+
+// ============================================
+// CMS: POSTS PAGE
+// ============================================
+
+async function renderPostsPage(container) {
+    container.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Posts Management</h1>
+            <div class="page-actions">
+                <button class="btn btn-secondary" onclick="loadCmsPosts()">🔄 Refresh</button>
+            </div>
+        </div>
+
+        <div class="card mb-6">
+            <div class="card-body">
+                <div class="cms-table-header">
+                    <input type="text" class="form-input cms-search-input" id="postsSearch" 
+                           placeholder="Search by author ID or description..." oninput="handlePostsSearch(event)">
+                    
+                    <select class="form-select" id="filterStatus" onchange="handlePostsFilterChange()">
+                        <option value="">All Status</option>
+                        <option value="pending">Pending</option>
+                        <option value="completed">Completed</option>
+                        <option value="failed">Failed</option>
+                    </select>
+
+                    <select class="form-select" id="filterModeration" onchange="handlePostsFilterChange()">
+                        <option value="">Moderation: All</option>
+                        <option value="pending">Awaiting</option>
+                        <option value="approved">Approved</option>
+                        <option value="flagged">Flagged</option>
+                        <option value="rejected">Rejected</option>
+                    </select>
+                </div>
+
+                <div class="table-container">
+                    <table class="cms-table">
+                        <thead>
+                            <tr>
+                                <th>Image</th>
+                                <th>Author</th>
+                                <th>Description</th>
+                                <th>Status</th>
+                                <th>Moderation</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="postsTableBody">
+                            <tr><td colspan="7" class="text-center text-muted">Loading posts...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="postsLoadMore" class="mt-4 text-center hidden">
+                    <button class="btn btn-secondary" onclick="loadCmsPosts(true)">Load More</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Reset state for new page
+    state.cmsLastId = null;
+    await loadCmsPosts();
+}
+
+async function loadCmsPosts(append = false) {
+    const tableBody = document.getElementById('postsTableBody');
+    const loadMoreBtn = document.getElementById('postsLoadMore');
+
+    if (!append) {
+        state.cmsLastId = null;
+        tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Loading...</td></tr>';
+    }
+
+    try {
+        const params = new URLSearchParams({
+            limit: 20,
+            status: state.cmsFilters.status,
+            moderationStatus: state.cmsFilters.moderationStatus,
+            search: state.cmsSearchQuery,
+        });
+
+        if (state.cmsLastId) {
+            params.append('startAfter', state.cmsLastId);
+        }
+
+        const data = await api(`/api/cms/posts?${params.toString()}`);
+        state.cmsPosts = append ? [...state.cmsPosts, ...data.posts] : data.posts;
+        state.cmsLastId = data.lastId;
+        state.cmsHasMore = data.hasMore;
+
+        renderPostsTable();
+
+        if (loadMoreBtn) {
+            loadMoreBtn.classList.toggle('hidden', !state.cmsHasMore);
+        }
+    } catch (e) {
+        console.error('Failed to load posts:', e);
+        tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Failed to load posts</td></tr>';
+    }
+}
+
+function renderPostsTable() {
+    const tableBody = document.getElementById('postsTableBody');
+    if (!tableBody) return;
+
+    if (state.cmsPosts.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No posts found</td></tr>';
+        return;
+    }
+
+    tableBody.innerHTML = state.cmsPosts.map(post => {
+        const thumbUrl = post.content?.thumbnailUrl || post.content?.url || post.content?.jpegUrl || '';
+        const authorName = post.author?.username || post.author?.displayName || 'Unknown';
+        const date = post.createdAt ? new Date(post.createdAt) : null;
+
+        const statusClass =
+            post.processingStatus === 'completed' ? 'badge-success' :
+                post.processingStatus === 'failed' ? 'badge-danger' : 'badge-info';
+
+        const modClass =
+            post.moderationStatus === 'approved' ? 'badge-success' :
+                post.moderationStatus === 'flagged' ? 'badge-warning' :
+                    post.moderationStatus === 'rejected' ? 'badge-danger' : 'badge-info';
+
+        return `
+            <tr>
+                <td>
+                    <img src="${escapeHtml(thumbUrl)}" class="cms-thumb" onerror="this.src='https://placehold.co/40x40?text=?'">
+                </td>
+                <td>
+                    <div class="flex items-center gap-2">
+                        <img src="${post.author?.avatarUrl || 'https://placehold.co/32x32?text=U'}" class="cms-user-avatar">
+                        <span class="text-xs">${escapeHtml(authorName)}</span>
+                    </div>
+                </td>
+                <td>
+                    <div class="text-xs truncate" style="max-width: 200px;" title="${escapeHtml(post.description || '')}">
+                        ${escapeHtml(post.description || 'No description')}
+                    </div>
+                </td>
+                <td><span class="badge ${statusClass}">${post.processingStatus || 'pending'}</span></td>
+                <td><span class="badge ${modClass}">${post.moderationStatus || 'pending'}</span></td>
+                <td class="text-xs text-muted">${date ? getRelativeTime(date) : 'Unknown'}</td>
+                <td>
+                    <div class="flex gap-2">
+                        <button class="btn btn-sm btn-secondary" onclick="viewPostDetails('${post.id}')">View</button>
+                        <button class="btn btn-sm btn-ghost" onclick="deleteCmsPost('${post.id}')">🗑️</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+let searchTimer;
+function handlePostsSearch(event) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        state.cmsSearchQuery = event.target.value;
+        loadCmsPosts();
+    }, 500);
+}
+
+function handlePostsFilterChange() {
+    state.cmsFilters.status = document.getElementById('filterStatus').value;
+    state.cmsFilters.moderationStatus = document.getElementById('filterModeration').value;
+    loadCmsPosts();
+}
+
+async function viewPostDetails(id) {
+    try {
+        const post = await api(`/api/cms/posts/${id}`);
+        const modal = document.getElementById('postModal');
+        const body = document.getElementById('postModalBody');
+        const footer = document.getElementById('postModalFooter');
+
+        const imageUrl = post.content?.url || post.content?.jpegUrl || '';
+        const authorName = post.author?.username || post.author?.displayName || 'Unknown';
+
+        body.innerHTML = `
+            <div class="flex gap-6" style="flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 300px;">
+                    <img src="${escapeHtml(imageUrl)}" style="width: 100%; border-radius: var(--radius-lg); max-height: 500px; object-fit: contain;">
+                </div>
+                <div style="flex: 1; min-width: 250px;">
+                    <div class="mb-4">
+                        <h4 class="text-muted font-medium uppercase text-xs mb-2">Author</h4>
+                        <div class="flex items-center gap-3">
+                            <img src="${post.author?.avatarUrl || 'https://placehold.co/32x32?text=U'}" class="cms-user-avatar" style="width: 48px; height: 48px;">
+                            <div>
+                                <div class="font-semibold">${escapeHtml(authorName)}</div>
+                                <div class="text-xs text-muted">${post.authorId}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <h4 class="text-muted font-medium uppercase text-xs mb-2">Description</h4>
+                        <p class="text-sm">${escapeHtml(post.description || 'No description')}</p>
+                    </div>
+                    <div class="mb-4">
+                        <h4 class="text-muted font-medium uppercase text-xs mb-2">Stats</h4>
+                        <div class="flex gap-4 text-sm">
+                            <span>❤️ ${post.likeCount || 0}</span>
+                            <span>🔖 ${post.saveCount || 0}</span>
+                            <span>👁️ ${post.viewCount || 0}</span>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <h4 class="text-muted font-medium uppercase text-xs mb-2">Moderation Status</h4>
+                        <select id="updateModStatus" class="form-select w-full">
+                            <option value="pending" ${post.moderationStatus === 'pending' ? 'selected' : ''}>Awaiting</option>
+                            <option value="approved" ${post.moderationStatus === 'approved' ? 'selected' : ''}>Approved</option>
+                            <option value="flagged" ${post.moderationStatus === 'flagged' ? 'selected' : ''}>Flagged</option>
+                            <option value="rejected" ${post.moderationStatus === 'rejected' ? 'selected' : ''}>Rejected</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        footer.innerHTML = `
+            <button class="btn btn-secondary" onclick="closePostModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="updatePostStatus('${post.id}')">Save Changes</button>
+        `;
+
+        modal.classList.add('visible');
+    } catch (e) {
+        console.error('Failed to load post details:', e);
+        showToast('Failed to load post details', 'error');
+    }
+}
+
+function closePostModal() {
+    document.getElementById('postModal').classList.remove('visible');
+}
+
+async function updatePostStatus(id) {
+    const status = document.getElementById('updateModStatus').value;
+    try {
+        await api(`/api/cms/posts/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ moderationStatus: status }),
+        });
+        showToast('Post status updated', 'success');
+        closePostModal();
+        loadCmsPosts();
+    } catch (e) {
+        console.error('Failed to update post:', e);
+        showToast('Failed to update post', 'error');
+    }
+}
+
+async function deleteCmsPost(id) {
+    if (!confirm('Are you sure you want to delete this post? This cannot be undone.')) return;
+
+    try {
+        await api(`/api/cms/posts/${id}`, { method: 'DELETE' });
+        showToast('Post deleted', 'success');
+        loadCmsPosts();
+    } catch (e) {
+        console.error('Failed to delete post:', e);
+        showToast('Failed to delete post', 'error');
+    }
+}
+
+// ============================================
+// CMS: USERS PAGE
+// ============================================
+
+async function renderUsersPage(container) {
+    container.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Users Management</h1>
+            <div class="page-actions">
+                <button class="btn btn-secondary" onclick="loadCmsUsers()">🔄 Refresh</button>
+            </div>
+        </div>
+
+        <div class="card mb-6">
+            <div class="card-body">
+                <div class="cms-table-header">
+                    <input type="text" class="form-input cms-search-input" id="usersSearch" 
+                           placeholder="Search by username or email..." oninput="handleUsersSearch(event)">
+                </div>
+
+                <div class="table-container">
+                    <table class="cms-table">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Email</th>
+                                <th>Joined</th>
+                                <th>Banned</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody">
+                            <tr><td colspan="5" class="text-center text-muted">Loading users...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="usersLoadMore" class="mt-4 text-center hidden">
+                    <button class="btn btn-secondary" onclick="loadCmsUsers(true)">Load More</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    state.cmsLastId = null;
+    await loadCmsUsers();
+}
+
+async function loadCmsUsers(append = false) {
+    const tableBody = document.getElementById('usersTableBody');
+    const loadMoreBtn = document.getElementById('usersLoadMore');
+
+    if (!append) {
+        state.cmsLastId = null;
+        tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>';
+    }
+
+    try {
+        const params = new URLSearchParams({
+            limit: 20,
+            search: state.cmsSearchQuery,
+        });
+
+        if (state.cmsLastId) {
+            params.append('startAfter', state.cmsLastId);
+        }
+
+        const data = await api(`/api/cms/users?${params.toString()}`);
+        state.cmsUsers = append ? [...state.cmsUsers, ...data.users] : data.users;
+        state.cmsLastId = data.lastId;
+        state.cmsHasMore = data.hasMore;
+
+        renderUsersTable();
+
+        if (loadMoreBtn) {
+            loadMoreBtn.classList.toggle('hidden', !state.cmsHasMore);
+        }
+    } catch (e) {
+        console.error('Failed to load users:', e);
+        tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Failed to load users</td></tr>';
+    }
+}
+
+function renderUsersTable() {
+    const tableBody = document.getElementById('usersTableBody');
+    if (!tableBody) return;
+
+    if (state.cmsUsers.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No users found</td></tr>';
+        return;
+    }
+
+    tableBody.innerHTML = state.cmsUsers.map(user => {
+        const date = user.createdAt ? new Date(user.createdAt) : null;
+        const banClass = user.banned ? 'badge-danger' : 'badge-success';
+
+        return `
+            <tr>
+                <td>
+                    <div class="flex items-center gap-2">
+                        <img src="${user.avatarUrl || 'https://placehold.co/32x32?text=U'}" class="cms-user-avatar">
+                        <div>
+                            <div class="font-medium">${escapeHtml(user.username || 'No username')}</div>
+                            <div class="text-xs text-muted">${user.id}</div>
+                        </div>
+                    </div>
+                </td>
+                <td>${escapeHtml(user.email || 'N/A')}</td>
+                <td class="text-xs text-muted">${date ? getRelativeTime(date) : 'Unknown'}</td>
+                <td><span class="badge ${banClass}">${user.banned ? 'Banned' : 'Active'}</span></td>
+                <td>
+                    <div class="flex gap-2">
+                        <button class="btn btn-sm btn-secondary" onclick="viewUserDetails('${user.id}')">View</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+let usersSearchTimer;
+function handleUsersSearch(event) {
+    clearTimeout(usersSearchTimer);
+    usersSearchTimer = setTimeout(() => {
+        state.cmsSearchQuery = event.target.value;
+        loadCmsUsers();
+    }, 500);
+}
+
+async function viewUserDetails(id) {
+    try {
+        const user = await api(`/api/cms/users/${id}`);
+        const modal = document.getElementById('userModal');
+        const body = document.getElementById('userModalBody');
+        const footer = document.getElementById('userModalFooter');
+
+        body.innerHTML = `
+            <div class="user-detail-header">
+                <img src="${user.avatarUrl || 'https://placehold.co/80x80?text=U'}" class="user-detail-avatar">
+                <div class="user-detail-info">
+                    <h2>${escapeHtml(user.displayName || user.username || 'User')}</h2>
+                    <p class="text-muted text-sm">@${escapeHtml(user.username || 'username')} • ${user.id}</p>
+                    <div class="flex gap-4 mt-2">
+                        <div class="stat-card p-2" style="min-width: 80px;">
+                            <div class="stat-value text-md">${user.stats?.postCount || 0}</div>
+                            <div class="stat-label" style="font-size: 8px;">Posts</div>
+                        </div>
+                        <div class="stat-card p-2" style="min-width: 80px;">
+                            <div class="stat-value text-md">${user.stats?.boardCount || 0}</div>
+                            <div class="stat-label" style="font-size: 8px;">Boards</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header"><span class="card-title">Account Details</span></div>
+                <div class="card-body">
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <div class="text-muted text-xs">Email</div>
+                            <div>${escapeHtml(user.email || 'N/A')}</div>
+                        </div>
+                        <div>
+                            <div class="text-muted text-xs">Joined</div>
+                            <div>${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><span class="card-title">Admin Actions</span></div>
+                <div class="card-body">
+                    <div class="form-group mb-4">
+                        <label class="form-label">Ban Status</label>
+                        <div class="flex items-center gap-4">
+                            <span class="text-sm">${user.banned ? 'User is currently banned' : 'User is active'}</span>
+                            <button class="btn btn-sm ${user.banned ? 'btn-success' : 'btn-danger'}" 
+                                onclick="toggleUserBan('${user.id}', ${!user.banned})">
+                                ${user.banned ? 'Unban User' : 'Ban User'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        footer.innerHTML = `
+            <button class="btn btn-danger" onclick="deleteCmsUser('${user.id}')" style="margin-right: auto;">Delete Account</button>
+            <button class="btn btn-secondary" onclick="closeUserModal()">Close</button>
+        `;
+
+        modal.classList.add('visible');
+    } catch (e) {
+        console.error('Failed to load user details:', e);
+        showToast('Failed to load user details', 'error');
+    }
+}
+
+function closeUserModal() {
+    document.getElementById('userModal').classList.remove('visible');
+}
+
+async function toggleUserBan(id, banned) {
+    if (!confirm(`Are you sure you want to ${banned ? 'ban' : 'unban'} this user?`)) return;
+
+    try {
+        await api(`/api/cms/users/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ banned }),
+        });
+        showToast(`User ${banned ? 'banned' : 'unbanned'}`, 'success');
+        viewUserDetails(id);
+        loadCmsUsers();
+    } catch (e) {
+        console.error('Failed to update user:', e);
+        showToast('Failed to update user', 'error');
+    }
+}
+
+async function deleteCmsUser(id) {
+    if (!confirm('Are you sure you want to delete this user? This will delete all their content. This action is irreversible!')) return;
+
+    try {
+        await api(`/api/cms/users/${id}`, { method: 'DELETE' });
+        showToast('User and content deleted', 'success');
+        closeUserModal();
+        loadCmsUsers();
+    } catch (e) {
+        console.error('Failed to delete user:', e);
+        showToast('Failed to delete user', 'error');
+    }
+}
+
+// ============================================
+// CMS: BOARDS PAGE
+// ============================================
+
+async function renderBoardsPage(container) {
+    container.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Boards Management</h1>
+            <div class="page-actions">
+                <button class="btn btn-secondary" onclick="loadCmsBoards()">🔄 Refresh</button>
+            </div>
+        </div>
+
+        <div class="card mb-6">
+            <div class="card-body">
+                <div class="table-container">
+                    <table class="cms-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Owner</th>
+                                <th>Posts</th>
+                                <th>Privacy</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="boardsTableBody">
+                            <tr><td colspan="6" class="text-center text-muted">Loading boards...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="boardsLoadMore" class="mt-4 text-center hidden">
+                    <button class="btn btn-secondary" onclick="loadCmsBoards(true)">Load More</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    state.cmsLastId = null;
+    await loadCmsBoards();
+}
+
+async function loadCmsBoards(append = false) {
+    const tableBody = document.getElementById('boardsTableBody');
+    const loadMoreBtn = document.getElementById('boardsLoadMore');
+
+    if (!append) {
+        state.cmsLastId = null;
+        tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Loading...</td></tr>';
+    }
+
+    try {
+        const params = new URLSearchParams({ limit: 20 });
+        if (state.cmsLastId) {
+            params.append('startAfter', state.cmsLastId);
+        }
+
+        const data = await api(`/api/cms/boards?${params.toString()}`);
+        state.cmsBoards = append ? [...state.cmsBoards, ...data.boards] : data.boards;
+        state.cmsLastId = data.lastId;
+        state.cmsHasMore = data.hasMore;
+
+        renderBoardsTable();
+
+        if (loadMoreBtn) {
+            loadMoreBtn.classList.toggle('hidden', !state.cmsHasMore);
+        }
+    } catch (e) {
+        console.error('Failed to load boards:', e);
+        tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Failed to load boards</td></tr>';
+    }
+}
+
+function renderBoardsTable() {
+    const tableBody = document.getElementById('boardsTableBody');
+    if (!tableBody) return;
+
+    if (state.cmsBoards.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No boards found</td></tr>';
+        return;
+    }
+
+    tableBody.innerHTML = state.cmsBoards.map(board => {
+        const ownerName = board.owner?.username || 'Unknown';
+        const date = board.createdAt ? new Date(board.createdAt) : null;
+        const privacyText = board.isPrivate ? 'Private' : 'Public';
+        const privacyClass = board.isPrivate ? 'badge-warning' : 'badge-success';
+
+        return `
+            <tr>
+                <td>
+                    <div class="font-medium">${escapeHtml(board.name)}</div>
+                    <div class="text-xs text-muted truncate" style="max-width: 200px;">${escapeHtml(board.description || '')}</div>
+                </td>
+                <td>
+                    <div class="text-xs">${escapeHtml(ownerName)}</div>
+                    <div class="text-xs text-muted" style="font-size: 10px;">${board.userId}</div>
+                </td>
+                <td><span class="font-medium">${board.postCount || 0}</span></td>
+                <td><span class="badge ${privacyClass}">${privacyText}</span></td>
+                <td class="text-xs text-muted">${date ? getRelativeTime(date) : 'Unknown'}</td>
+                <td>
+                    <div class="flex gap-2">
+                        <button class="btn btn-sm btn-secondary" onclick="viewBoardDetails('${board.id}')">View</button>
+                        <button class="btn btn-sm btn-ghost" onclick="deleteCmsBoard('${board.id}')">🗑️</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function viewBoardDetails(id) {
+    try {
+        const board = await api(`/api/cms/boards/${id}`);
+        const modal = document.getElementById('boardModal');
+        const body = document.getElementById('boardModalBody');
+
+        body.innerHTML = `
+            <div class="mb-6">
+                <h2 class="text-xl font-bold mb-1">${escapeHtml(board.name)}</h2>
+                <p class="text-muted text-sm">${escapeHtml(board.description || 'No description')}</p>
+                <div class="flex gap-4 mt-3 text-xs">
+                    <span>By: <b>${escapeHtml(board.owner?.username || 'Unknown')}</b></span>
+                    <span>Posts: <b>${board.postCount || 0}</b></span>
+                    <span>Status: <b>${board.isPrivate ? 'Private' : 'Public'}</b></span>
+                </div>
+            </div>
+
+            <h4 class="text-muted font-medium uppercase text-xs mb-3">Preview Posts</h4>
+            <div class="image-grid">
+                ${board.previewPosts?.map(post => {
+            const thumbUrl = post.content?.thumbnailUrl || post.content?.url || post.content?.jpegUrl || '';
+            return `
+                        <div class="image-card">
+                            <img src="${escapeHtml(thumbUrl)}" loading="lazy">
+                        </div>
+                    `;
+        }).join('') || '<div class="col-span-full text-center p-8 text-muted">No posts in this board</div>'}
+            </div>
+        `;
+
+        modal.classList.add('visible');
+    } catch (e) {
+        console.error('Failed to load board details:', e);
+        showToast('Failed to load board details', 'error');
+    }
+}
+
+function closeBoardModal() {
+    document.getElementById('boardModal').classList.remove('visible');
+}
+
+async function deleteCmsBoard(id) {
+    if (!confirm('Are you sure you want to delete this board? The posts inside will not be deleted, only the board organization.')) return;
+
+    try {
+        await api(`/api/cms/boards/${id}`, { method: 'DELETE' });
+        showToast('Board deleted', 'success');
+        loadCmsBoards();
+    } catch (e) {
+        console.error('Failed to delete board:', e);
+        showToast('Failed to delete board', 'error');
+    }
+}
+
+// ============================================
+// CMS: IDEAS PAGE
+// ============================================
+
+async function renderIdeasPage(container) {
+    container.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Ideas (Categories)</h1>
+            <div class="page-actions">
+                <button class="btn btn-primary" onclick="openAddIdeaModal()">+ Add Idea</button>
+            </div>
+        </div>
+
+        <div id="ideasGrid" class="ideas-grid">
+            <div class="col-span-full text-center text-muted">Loading ideas...</div>
+        </div>
+    `;
+
+    await loadCmsIdeas();
+}
+
+async function loadCmsIdeas() {
+    const grid = document.getElementById('ideasGrid');
+    if (!grid) return;
+
+    try {
+        const data = await api('/api/cms/ideas');
+        state.cmsIdeas = data.ideas;
+        renderIdeasGrid();
+    } catch (e) {
+        console.error('Failed to load ideas:', e);
+        grid.innerHTML = '<div class="col-span-full text-center text-danger">Failed to load ideas</div>';
+    }
+}
+
+function renderIdeasGrid() {
+    const grid = document.getElementById('ideasGrid');
+    if (!grid) return;
+
+    if (state.cmsIdeas.length === 0) {
+        grid.innerHTML = '<div class="col-span-full text-center text-muted">No ideas found. Create one!</div>';
+        return;
+    }
+
+    grid.innerHTML = state.cmsIdeas.map(idea => `
+        <div class="idea-card" onclick="viewIdeaDetails('${idea.id}')">
+            <div class="idea-card-header">
+                <div class="idea-icon-circle" style="background: ${idea.color || 'var(--accent-primary-muted)'}; color: ${idea.color ? 'white' : 'var(--accent-primary)'}">
+                    ${escapeHtml(idea.iconName?.split(':').pop() || '💡')}
+                </div>
+                <div>
+                    <div class="font-bold">${escapeHtml(idea.name)}</div>
+                    <div class="text-xs text-muted">/${escapeHtml(idea.slug)}</div>
+                </div>
+            </div>
+            <div class="text-xs text-muted mb-3 line-clamp-2">${escapeHtml(idea.description || 'No description')}</div>
+            <div class="idea-stats">
+                <span>🖼️ ${idea.postCount || 0} posts</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function openAddIdeaModal() {
+    state.editingIdeaId = null;
+    document.getElementById('ideaModalTitle').textContent = 'Add Idea';
+    document.getElementById('ideaName').value = '';
+    document.getElementById('ideaSlug').value = '';
+    document.getElementById('ideaDescription').value = '';
+    document.getElementById('ideaColor').value = '';
+    document.getElementById('ideaIcon').value = '';
+    document.getElementById('ideaModal').classList.add('visible');
+}
+
+async function viewIdeaDetails(id) {
+    const idea = state.cmsIdeas.find(i => i.id === id);
+    if (!idea) return;
+
+    state.editingIdeaId = id;
+    document.getElementById('ideaModalTitle').textContent = 'Edit Idea';
+    document.getElementById('ideaName').value = idea.name;
+    document.getElementById('ideaSlug').value = idea.slug;
+    document.getElementById('ideaDescription').value = idea.description || '';
+    document.getElementById('ideaColor').value = idea.color || '';
+    document.getElementById('ideaIcon').value = idea.iconName || '';
+
+    // Add delete functionality to the edit modal
+    const modalFooter = document.querySelector('#ideaModal .modal-footer');
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn btn-danger';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.style.marginRight = 'auto';
+    deleteBtn.onclick = () => deleteCmsIdea(id);
+
+    // Remove old delete btn if exists
+    const oldDelete = modalFooter.querySelector('.btn-danger');
+    if (oldDelete) oldDelete.remove();
+    modalFooter.prepend(deleteBtn);
+
+    document.getElementById('ideaModal').classList.add('visible');
+}
+
+function closeIdeaModal() {
+    document.getElementById('ideaModal').classList.remove('visible');
+    const oldDelete = document.querySelector('#ideaModal .modal-footer .btn-danger');
+    if (oldDelete) oldDelete.remove();
+}
+
+async function saveIdea() {
+    const name = document.getElementById('ideaName').value.trim();
+    const slug = document.getElementById('ideaSlug').value.trim();
+    const description = document.getElementById('ideaDescription').value.trim();
+    const color = document.getElementById('ideaColor').value.trim();
+    const iconName = document.getElementById('ideaIcon').value.trim();
+
+    if (!name || !slug) {
+        showToast('Name and slug are required', 'warning');
+        return;
+    }
+
+    try {
+        const body = { name, slug, description, color, iconName };
+        if (state.editingIdeaId) {
+            await api(`/api/cms/ideas/${state.editingIdeaId}`, {
+                method: 'PUT',
+                body: JSON.stringify(body),
+            });
+            showToast('Idea updated', 'success');
+        } else {
+            await api('/api/cms/ideas', {
+                method: 'POST',
+                body: JSON.stringify(body),
+            });
+            showToast('Idea created', 'success');
+        }
+
+        closeIdeaModal();
+        await loadCmsIdeas();
+    } catch (e) {
+        console.error('Failed to save idea:', e);
+        showToast('Failed to save idea', 'error');
+    }
+}
+
+async function deleteCmsIdea(id) {
+    if (!confirm('Are you sure you want to delete this idea?')) return;
+
+    try {
+        await api(`/api/cms/ideas/${id}`, { method: 'DELETE' });
+        showToast('Idea deleted', 'success');
+        closeIdeaModal();
+        await loadCmsIdeas();
+    } catch (e) {
+        console.error('Failed to delete idea:', e);
+        showToast('Failed to delete idea', 'error');
+    }
+}
+
+// ============================================
+// CMS: ANALYTICS PAGE
+// ============================================
+
+async function renderAnalyticsPage(container) {
+    container.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Platform Analytics</h1>
+            <div class="page-actions">
+                <button class="btn btn-secondary" onclick="loadCmsAnalytics()">🔄 Refresh</button>
+            </div>
+        </div>
+
+        <div id="analyticsOverview" class="stats-grid mb-6">
+            <div class="stat-card"><div class="stat-value">...</div><div class="stat-label">Total Users</div></div>
+            <div class="stat-card"><div class="stat-value">...</div><div class="stat-label">Total Posts</div></div>
+            <div class="stat-card"><div class="stat-value">...</div><div class="stat-label">Boards</div></div>
+            <div class="stat-card"><div class="stat-value">...</div><div class="stat-label">Ideas</div></div>
+        </div>
+
+        <div class="analytics-grid">
+            <div class="card">
+                <div class="card-header"><span class="card-title">⚙️ Processing Health</span></div>
+                <div class="card-body">
+                    <div id="processingStats" class="flex flex-col gap-4">
+                        <!-- Filled dynamically -->
+                        <div class="text-center text-muted">Loading metrics...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><span class="card-title">🛡️ Moderation Queue</span></div>
+                <div class="card-body">
+                    <div id="moderationStats" class="flex flex-col gap-4">
+                        <!-- Filled dynamically -->
+                        <div class="text-center text-muted">Loading metrics...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-6">
+            <div class="card-header"><span class="card-title">📈 Growth Trend (Last 30 Days)</span></div>
+            <div class="card-body">
+                <div id="growthChart" class="flex items-center justify-center text-muted" style="height: 300px; background: var(--bg-tertiary); border-radius: var(--radius-lg);">
+                    Chart implementation pending (integrate Chart.js if required)
+                </div>
+                <div id="growthTable" class="mt-4">
+                    <!-- Text summary of growth -->
+                </div>
+            </div>
+        </div>
+    `;
+
+    await loadCmsAnalytics();
+}
+
+async function loadCmsAnalytics() {
+    try {
+        const data = await api('/api/cms/analytics/overview');
+        state.cmsAnalytics = data;
+        renderAnalyticsOverview();
+
+        // Also fetch growth data
+        const growthData = await api('/api/cms/analytics/growth?days=30');
+        renderGrowthData(growthData.growth);
+    } catch (e) {
+        console.error('Failed to load analytics:', e);
+        showToast('Failed to load analytics', 'error');
+    }
+}
+
+function renderAnalyticsOverview() {
+    const overview = document.getElementById('analyticsOverview');
+    const processing = document.getElementById('processingStats');
+    const moderation = document.getElementById('moderationStats');
+    if (!overview || !state.cmsAnalytics) return;
+
+    const { totals, processing: proc, moderation: mod } = state.cmsAnalytics;
+
+    overview.innerHTML = `
+        <div class="stat-card">
+            <div class="stat-value">${totals.users.toLocaleString()}</div>
+            <div class="stat-label">Total Users</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${totals.posts.toLocaleString()}</div>
+            <div class="stat-label">Total Posts</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${totals.boards.toLocaleString()}</div>
+            <div class="stat-label">Total Boards</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${totals.ideas.toLocaleString()}</div>
+            <div class="stat-label">Total Ideas</div>
+        </div>
+    `;
+
+    processing.innerHTML = `
+        <div class="flex justify-between items-center">
+            <span class="text-sm">Completed</span>
+            <span class="badge badge-success">${proc.completed.toLocaleString()}</span>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill success" style="width: ${(proc.completed / (totals.posts || 1) * 100).toFixed(1)}%"></div>
+        </div>
+        <div class="flex justify-between items-center">
+            <span class="text-sm">Pending</span>
+            <span class="badge badge-info">${proc.pending.toLocaleString()}</span>
+        </div>
+        <div class="flex justify-between items-center">
+            <span class="text-sm">Failed</span>
+            <span class="badge badge-danger">${proc.failed.toLocaleString()}</span>
+        </div>
+    `;
+
+    moderation.innerHTML = `
+        <div class="flex justify-between items-center">
+            <span class="text-sm">Awaiting Moderation</span>
+            <span class="badge badge-warning">${mod.awaitingModeration.toLocaleString()}</span>
+        </div>
+        <div class="flex justify-between items-center">
+            <span class="text-sm">Flagged for Review</span>
+            <span class="badge badge-danger">${mod.flagged.toLocaleString()}</span>
+        </div>
+        <button class="btn btn-secondary w-full mt-4" onclick="navigateTo('posts')">Go to Moderation Queue</button>
+    `;
+}
+
+function renderGrowthData(growth) {
+    const tableDiv = document.getElementById('growthTable');
+    if (!tableDiv || !growth || growth.length === 0) return;
+
+    const recentGrowth = growth.slice(-7); // Last 7 days
+    const totalNewUsers = recentGrowth.reduce((sum, d) => sum + d.users, 0);
+    const totalNewPosts = recentGrowth.reduce((sum, d) => sum + d.posts, 0);
+
+    tableDiv.innerHTML = `
+        <div class="text-sm text-muted">
+            In the last 7 days, there were <b>${totalNewUsers}</b> new users and <b>${totalNewPosts}</b> new posts.
+        </div>
+    `;
 }
 
 // ============================================

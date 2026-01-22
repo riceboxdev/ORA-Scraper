@@ -70,7 +70,7 @@
                 </div>
 
                 <div class="nav-section">
-                    <div class="nav-section-title">Content</div>
+                    <div class="nav-section-title">Scraper</div>
                     <a href="#/sources" class="nav-item" data-page="sources">
                         <span class="nav-item-icon">🔗</span>
                         <span>Sources</span>
@@ -82,7 +82,31 @@
                 </div>
 
                 <div class="nav-section">
+                    <div class="nav-section-title">Content</div>
+                    <a href="#/posts" class="nav-item" data-page="posts">
+                        <span class="nav-item-icon">📝</span>
+                        <span>Posts</span>
+                    </a>
+                    <a href="#/users" class="nav-item" data-page="users">
+                        <span class="nav-item-icon">👥</span>
+                        <span>Users</span>
+                    </a>
+                    <a href="#/boards" class="nav-item" data-page="boards">
+                        <span class="nav-item-icon">📋</span>
+                        <span>Boards</span>
+                    </a>
+                    <a href="#/ideas" class="nav-item" data-page="ideas">
+                        <span class="nav-item-icon">💡</span>
+                        <span>Ideas</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
                     <div class="nav-section-title">System</div>
+                    <a href="#/analytics" class="nav-item" data-page="analytics">
+                        <span class="nav-item-icon">📈</span>
+                        <span>Analytics</span>
+                    </a>
                     <a href="#/settings" class="nav-item" data-page="settings">
                         <span class="nav-item-icon">⚙️</span>
                         <span>Settings</span>
@@ -187,6 +211,95 @@
             </div>
             <div class="modal-footer" id="imageModalFooter">
                 <button class="btn btn-secondary" onclick="closeImageModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Post Detail Modal (CMS) -->
+    <div class="modal-overlay" id="postModal">
+        <div class="modal modal-lg">
+            <div class="modal-header">
+                <h3 class="modal-title">Post Details</h3>
+                <button class="modal-close" onclick="closePostModal()">✕</button>
+            </div>
+            <div class="modal-body" id="postModalBody">
+                <!-- Filled dynamically -->
+            </div>
+            <div class="modal-footer" id="postModalFooter">
+                <button class="btn btn-secondary" onclick="closePostModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Detail Modal (CMS) -->
+    <div class="modal-overlay" id="userModal">
+        <div class="modal modal-lg">
+            <div class="modal-header">
+                <h3 class="modal-title">User Details</h3>
+                <button class="modal-close" onclick="closeUserModal()">✕</button>
+            </div>
+            <div class="modal-body" id="userModalBody">
+                <!-- Filled dynamically -->
+            </div>
+            <div class="modal-footer" id="userModalFooter">
+                <button class="btn btn-secondary" onclick="closeUserModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Board Detail Modal (CMS) -->
+    <div class="modal-overlay" id="boardModal">
+        <div class="modal modal-lg">
+            <div class="modal-header">
+                <h3 class="modal-title">Board Details</h3>
+                <button class="modal-close" onclick="closeBoardModal()">✕</button>
+            </div>
+            <div class="modal-body" id="boardModalBody">
+                <!-- Filled dynamically -->
+            </div>
+            <div class="modal-footer" id="boardModalFooter">
+                <button class="btn btn-secondary" onclick="closeBoardModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Idea Create/Edit Modal (CMS) -->
+    <div class="modal-overlay" id="ideaModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="ideaModalTitle">Add Idea</h3>
+                <button class="modal-close" onclick="closeIdeaModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group mb-4">
+                    <label class="form-label">Name</label>
+                    <input type="text" class="form-input" id="ideaName" placeholder="e.g., Modern Interior"
+                        style="width: 100%;">
+                </div>
+                <div class="form-group mb-4">
+                    <label class="form-label">Slug</label>
+                    <input type="text" class="form-input" id="ideaSlug" placeholder="e.g., modern-interior"
+                        style="width: 100%;">
+                </div>
+                <div class="form-group mb-4">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-input" id="ideaDescription" rows="3" placeholder="Optional description..."
+                        style="width: 100%;"></textarea>
+                </div>
+                <div class="flex gap-4">
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label">Color (hex)</label>
+                        <input type="text" class="form-input" id="ideaColor" placeholder="#6366f1" style="width: 100%;">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label">Icon Name</label>
+                        <input type="text" class="form-input" id="ideaIcon" placeholder="sparkles" style="width: 100%;">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeIdeaModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveIdea()">Save Idea</button>
             </div>
         </div>
     </div>
