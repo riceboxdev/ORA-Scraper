@@ -17,6 +17,7 @@ export interface Config {
     // Server
     port: number;
     nodeEnv: string;
+    workerUrl: string;
 
     // Scraper defaults (can be overridden via settings table)
     defaultBatchSize: number;
@@ -44,6 +45,7 @@ export const config: Config = {
 
     port: parseInt(optional('PORT', '3000'), 10),
     nodeEnv: optional('NODE_ENV', 'development'),
+    workerUrl: optional('WORKER_URL', 'https://ora-workers.riceboxdev.workers.dev'),
 
     defaultBatchSize: parseInt(optional('DEFAULT_BATCH_SIZE', '30'), 10),
     defaultIntervalHours: parseInt(optional('DEFAULT_INTERVAL_HOURS', '4'), 10),

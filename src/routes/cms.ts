@@ -5,6 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import { db } from '../firebase.js';
+import { config } from '../config.js';
 import admin from 'firebase-admin';
 
 const router = Router();
@@ -600,6 +601,42 @@ router.delete('/boards/:id', async (req: Request, res: Response) => {
 // ============================================
 // IDEA SUGGESTIONS MANAGEMENT
 // ============================================
+
+/**
+ * POST /api/cms/ideas/generate - Trigger idea generation via Worker (Proxy)
+ */
+router.post('/ideas/generate', async (req: Request, res: Response) => {
+    try {
+        console.log(`Triggering idea generation via worker: ${config.workerUrl}/discover`);
+
+        // Call the worker
+        const workerResponse = await fetch(`${config.workerUrl}/discover`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                // Add secret header if needed in future
+            },
+            body: JSON.stringify({
+                sampleSize: req.body.sampleSize || 200
+            })
+        });
+
+        if (!workerResponse.ok) {
+            const text = await workerResponse.text();
+            throw new Error(`Worker responded with ${workerResponse.status}: ${text}`);
+        }
+
+        const data = await workerResponse.json();
+        res.json(data);
+
+    } catch (error: any) {
+        console.error('Error triggering idea generation:', error);
+        res.status(500).json({
+            error: 'Failed to generate ideas',
+            details: error.message
+        });
+    }
+});
 
 /**
  * GET /api/cms/ideas/suggestions - List pending suggestions

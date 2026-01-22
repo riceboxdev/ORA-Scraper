@@ -2415,6 +2415,11 @@ async function renderIdeasPage(container) {
 
         <!-- Suggestions View -->
         <div id="suggestionsView" style="display: none;">
+            <div class="flex justify-end mb-4" style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
+                <button id="btn-generate-suggestions" class="btn btn-secondary btn-sm" onclick="generateSuggestions()">
+                    ✨ Generate New Suggestions
+                </button>
+            </div>
             <div id="suggestionsList" class="flex flex-col gap-4">
                 <div class="text-center text-muted">Loading suggestions...</div>
             </div>
@@ -2573,6 +2578,36 @@ function renderSuggestionsList() {
         </div>
         `;
     }).join('');
+}
+
+async function generateSuggestions() {
+    if (!confirm('This will trigger a new analysis of recent posts to find clusters. It may take 10-20 seconds. Continue?')) {
+        return;
+    }
+
+    const btn = document.getElementById('btn-generate-suggestions');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width: 12px; height: 12px; border-width: 2px;"></span> Generating...';
+    }
+
+    try {
+        await api('/api/cms/ideas/generate', 'POST', { sampleSize: 300 }); // Increase sample size for better results
+        showToast('Analysis complete! Refreshing suggestions...', 'success');
+
+        // Wait a moment for firestore to sync
+        setTimeout(() => {
+            loadCmsSuggestions();
+        }, 1000);
+    } catch (e) {
+        console.error('Generation failed:', e);
+        showToast('Failed to generate suggestions: ' + (e.details || e.message), 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '✨ Generate New Suggestions';
+        }
+    }
 }
 
 async function approveSuggestion(id) {
