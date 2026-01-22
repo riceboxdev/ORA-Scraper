@@ -352,7 +352,7 @@ router.get('/users', async (req: Request, res: Response) => {
         // If no search, we use ordering. If we use createdAt, we might miss users without that field.
         // We'll try to order by createdAt but if the count is suspiciously low, we might need a different approach.
         // For now, let's just make it simpler: order by document ID if createdAt is missing or as a fallback.
-        query = query.orderBy('createdAt', 'desc');
+        // query = query.orderBy('createdAt', 'desc'); // Commented out to ensure all users (even legacy w/o createdAt) are returned
 
         if (startAfter) {
             const startDoc = await db.collection('userProfiles').doc(startAfter).get();
