@@ -109,7 +109,11 @@ export async function getSourceById(id: string): Promise<FirestoreSource | null>
     return { id: doc.id, ...doc.data() } as FirestoreSource;
 }
 
-export async function createSource(type: Source['type'], query: string): Promise<FirestoreSource> {
+export async function createSource(
+    type: Source['type'],
+    query: string,
+    config: { crawlDepth?: number; followLinks?: boolean } = {}
+): Promise<FirestoreSource> {
     const data = {
         type,
         query,
@@ -117,6 +121,8 @@ export async function createSource(type: Source['type'], query: string): Promise
         lastScrapedAt: null,
         totalScraped: 0,
         createdAt: new Date().toISOString(),
+        crawlDepth: config.crawlDepth || 0,
+        followLinks: config.followLinks || false,
     };
 
     const docRef = await db.collection(SOURCES_COLLECTION).add(data);

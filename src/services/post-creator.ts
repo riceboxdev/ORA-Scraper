@@ -62,6 +62,7 @@ export async function createPost(params: CreatePostParams): Promise<string> {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         embeddingStatus: 'pending',
         processingStatus: 'pending',
+        moderationStatus: 'approved', // Auto-approve scraped content per requirements
         isSystemCurated: true,
     };
 

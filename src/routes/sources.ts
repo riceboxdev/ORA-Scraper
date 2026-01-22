@@ -22,7 +22,7 @@ router.get('/', async (_req: Request, res: Response) => {
 // Create a new source
 router.post('/', async (req: Request, res: Response) => {
     try {
-        const { type, query } = req.body;
+        const { type, query, crawlDepth, followLinks } = req.body;
 
         if (!type || !query) {
             res.status(400).json({ error: 'Type and query are required' });
@@ -34,7 +34,7 @@ router.post('/', async (req: Request, res: Response) => {
             return;
         }
 
-        const source = await firestoreDb.createSource(type, query);
+        const source = await firestoreDb.createSource(type, query, { crawlDepth, followLinks });
         res.status(201).json(source);
     } catch (error) {
         console.error('Error creating source:', error);
@@ -46,7 +46,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { type, query, enabled } = req.body;
+        const { type, query, enabled, crawlDepth, followLinks } = req.body;
 
         const existing = await firestoreDb.getSourceById(id);
         if (!existing) {
@@ -54,10 +54,12 @@ router.put('/:id', async (req: Request, res: Response) => {
             return;
         }
 
-        const updates: Partial<{ type: 'unsplash' | 'reddit' | 'url'; query: string; enabled: boolean }> = {};
+        const updates: Partial<{ type: 'unsplash' | 'reddit' | 'url'; query: string; enabled: boolean; crawlDepth: number; followLinks: boolean }> = {};
         if (type !== undefined) updates.type = type;
         if (query !== undefined) updates.query = query;
         if (enabled !== undefined) updates.enabled = enabled;
+        if (crawlDepth !== undefined) updates.crawlDepth = crawlDepth;
+        if (followLinks !== undefined) updates.followLinks = followLinks;
 
         const updated = await firestoreDb.updateSource(id, updates);
         res.json(updated);

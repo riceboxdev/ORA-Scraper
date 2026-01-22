@@ -134,6 +134,22 @@
                     <input type="text" class="form-input" id="sourceQuery" placeholder="e.g., interior design"
                         style="width: 100%;">
                 </div>
+
+                <div id="crawlOptions"
+                    style="display: none; margin-top: 1rem; border-top: 1px solid #333; padding-top: 1rem;">
+                    <div class="form-group mb-4">
+                        <label class="form-label">Crawl Depth</label>
+                        <input type="number" class="form-input" id="crawlDepth" min="0" max="3" value="0"
+                            style="width: 100%;">
+                        <div class="text-xs text-muted mt-1">0 = current page only, 1 = follow links once</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="flex items-center gap-2" style="cursor: pointer;">
+                            <input type="checkbox" id="followLinks">
+                            <span>Follow External Links</span>
+                        </label>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeSourceModal()">Cancel</button>

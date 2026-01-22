@@ -821,6 +821,8 @@ function openAddSourceModal() {
     document.getElementById('sourceType').value = 'unsplash';
     document.getElementById('sourceQuery').value = '';
     updateSourceQueryLabel();
+    document.getElementById('crawlDepth').value = 0;
+    document.getElementById('followLinks').checked = false;
     document.getElementById('sourceModal').classList.add('visible');
 }
 
@@ -833,6 +835,8 @@ function editSource(id) {
     document.getElementById('sourceType').value = source.type;
     document.getElementById('sourceQuery').value = source.query;
     updateSourceQueryLabel();
+    document.getElementById('crawlDepth').value = source.crawlDepth || 0;
+    document.getElementById('followLinks').checked = !!source.followLinks;
     document.getElementById('sourceModal').classList.add('visible');
 }
 
@@ -860,11 +864,19 @@ function updateSourceQueryLabel() {
             input.placeholder = 'e.g., https://example.com';
             break;
     }
+
+    // Toggle crawl options for URL type
+    const crawlOptions = document.getElementById('crawlOptions');
+    if (crawlOptions) {
+        crawlOptions.style.display = type === 'url' ? 'block' : 'none';
+    }
 }
 
 async function saveSource() {
     const type = document.getElementById('sourceType').value;
     const query = document.getElementById('sourceQuery').value.trim();
+    const crawlDepth = parseInt(document.getElementById('crawlDepth').value, 10) || 0;
+    const followLinks = document.getElementById('followLinks').checked;
 
     if (!query) {
         showToast('Please enter a query', 'warning');
@@ -872,16 +884,22 @@ async function saveSource() {
     }
 
     try {
+        const body = { type, query };
+        if (type === 'url') {
+            body.crawlDepth = crawlDepth;
+            body.followLinks = followLinks;
+        }
+
         if (state.editingSourceId) {
             await api(`/api/sources/${state.editingSourceId}`, {
                 method: 'PUT',
-                body: JSON.stringify({ type, query }),
+                body: JSON.stringify(body),
             });
             showToast('Source updated', 'success');
         } else {
             await api('/api/sources', {
                 method: 'POST',
-                body: JSON.stringify({ type, query }),
+                body: JSON.stringify(body),
             });
             showToast('Source added', 'success');
         }
@@ -1112,13 +1130,38 @@ function openImageModal(index, tab) {
         footer.innerHTML = `
             <button class="btn btn-secondary" onclick="skipFailedImage(${image.id})">Skip Permanently</button>
             <button class="btn btn-primary" onclick="retryFailedImage(${image.id})">Retry</button>
+            <button class="btn btn-danger" onclick="deleteImage(${image.id}, '${tab}')">Delete</button>
             <button class="btn btn-ghost" onclick="closeImageModal()">Close</button>
         `;
     } else {
-        footer.innerHTML = `<button class="btn btn-secondary" onclick="closeImageModal()">Close</button>`;
+        footer.innerHTML = `
+            <button class="btn btn-danger" onclick="deleteImage(${image.id}, '${tab}')" style="margin-right: auto;">Delete</button>
+            <button class="btn btn-secondary" onclick="closeImageModal()">Close</button>
+        `;
     }
 
     modal.classList.add('visible');
+}
+
+async function deleteImage(id, tab) {
+    if (!confirm('Delete this image and its associated post? This action cannot be undone.')) {
+        return;
+    }
+
+    try {
+        await api(`/api/images/${id}`, { method: 'DELETE' });
+        showToast('Image and post deleted', 'success');
+        closeImageModal();
+        await loadImagesForTab(tab);
+
+        // Refresh dashboard if we're there
+        if (state.currentPage === 'dashboard') {
+            loadStats();
+        }
+    } catch (e) {
+        console.error('Failed to delete image:', e);
+        showToast('Failed to delete image', 'error');
+    }
 }
 
 function closeImageModal() {

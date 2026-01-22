@@ -73,7 +73,10 @@ export async function runScrapeJob(batchSize: number): Promise<void> {
                 }
 
                 // Scrape images
-                const images = await scraper.scrape(source.query, imagesPerSource * 2); // Get extra for filtering
+                const images = await scraper.scrape(source.query, imagesPerSource * 2, {
+                    crawlDepth: source.crawlDepth,
+                    followLinks: source.followLinks
+                });
                 console.log(`  Found ${images.length} images`);
 
                 let sourceUploaded = 0;
@@ -139,8 +142,7 @@ export async function runScrapeJob(batchSize: number): Promise<void> {
                         });
 
                         // Mark as scraped (SQLite cache for deduplication)
-                        // Use string ID now instead of numeric
-                        markImageAsScraped(parseInt(source.id) || 0, image.url, postId);
+                        markImageAsScraped(source.id, image.url, postId);
 
                         sourceUploaded++;
                         totalUploaded++;

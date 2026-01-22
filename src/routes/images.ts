@@ -4,6 +4,7 @@
 
 import { Router, Request, Response } from 'express';
 import { db } from '../db.js';
+import { db as firestore } from '../firebase.js';
 
 const router = Router();
 

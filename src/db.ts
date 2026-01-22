@@ -36,7 +36,7 @@ db.exec(`
     -- Scraped images log (for deduplication)
     CREATE TABLE IF NOT EXISTS scraped_images (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sourceId INTEGER,
+        sourceId TEXT,
         imageUrl TEXT NOT NULL UNIQUE,
         postId TEXT,
         scrapedAt TEXT DEFAULT (datetime('now')),
@@ -65,7 +65,7 @@ db.exec(`
     -- Quality filtered images (for preview/debugging)
     CREATE TABLE IF NOT EXISTS filtered_images (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sourceId INTEGER,
+        sourceId TEXT,
         imageUrl TEXT NOT NULL,
         qualityScore REAL,
         qualityType TEXT,
@@ -144,7 +144,7 @@ export function isImageAlreadyScraped(imageUrl: string): boolean {
     return !!queries.isImageScraped.get(imageUrl);
 }
 
-export function markImageAsScraped(sourceId: number, imageUrl: string, postId: string): void {
+export function markImageAsScraped(sourceId: string, imageUrl: string, postId: string): void {
     queries.markImageScraped.run(sourceId, imageUrl, postId);
 }
 
