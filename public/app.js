@@ -68,7 +68,15 @@ const state = {
     pendingDeleteId: null,
     selectedSources: new Set(),
     imagesTab: 'recent',
-    cmsSearchQuery: '',
+
+    // CMS UI State
+    postsViewMode: 'list', // 'list' or 'grid'
+    selectedPosts: new Set(),
+    cmsSearchQueries: {
+        posts: '',
+        users: '',
+        boards: '',
+    },
     cmsFilters: {
         status: '',
         moderationStatus: '',
@@ -1516,6 +1524,10 @@ async function renderPostsPage(container) {
         <div class="page-header">
             <h1 class="page-title">Posts Management</h1>
             <div class="page-actions">
+                <div class="view-toggle mr-4">
+                    <div class="view-toggle-btn ${state.postsViewMode === 'list' ? 'active' : ''}" onclick="togglePostsView('list')">List</div>
+                    <div class="view-toggle-btn ${state.postsViewMode === 'grid' ? 'active' : ''}" onclick="togglePostsView('grid')">Grid</div>
+                </div>
                 <button class="btn btn-secondary" onclick="loadCmsPosts()">🔄 Refresh</button>
             </div>
         </div>
@@ -1524,7 +1536,9 @@ async function renderPostsPage(container) {
             <div class="card-body">
                 <div class="cms-table-header">
                     <input type="text" class="form-input cms-search-input" id="postsSearch" 
-                           placeholder="Search by author ID or description..." oninput="handlePostsSearch(event)">
+                           placeholder="Search by author ID or description..." 
+                           value="${state.cmsSearchQueries.posts}"
+                           oninput="handlePostsSearch(event)">
                     
                     <select class="form-select" id="filterStatus" onchange="handlePostsFilterChange()">
                         <option value="">All Status</option>
@@ -1542,23 +1556,8 @@ async function renderPostsPage(container) {
                     </select>
                 </div>
 
-                <div class="table-container">
-                    <table class="cms-table">
-                        <thead>
-                            <tr>
-                                <th>Image</th>
-                                <th>Author</th>
-                                <th>Description</th>
-                                <th>Status</th>
-                                <th>Moderation</th>
-                                <th>Created</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="postsTableBody">
-                            <tr><td colspan="7" class="text-center text-muted">Loading posts...</td></tr>
-                        </tbody>
-                    </table>
+                <div id="postsContent">
+                    <div class="text-center p-8 text-muted">Loading posts...</div>
                 </div>
 
                 <div id="postsLoadMore" class="mt-4 text-center hidden">
@@ -1570,16 +1569,16 @@ async function renderPostsPage(container) {
 
     // Reset state for new page
     state.cmsLastId = null;
+    clearSelection();
     await loadCmsPosts();
 }
 
 async function loadCmsPosts(append = false) {
-    const tableBody = document.getElementById('postsTableBody');
+    const content = document.getElementById('postsContent');
     const loadMoreBtn = document.getElementById('postsLoadMore');
 
     if (!append) {
         state.cmsLastId = null;
-        tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Loading...</td></tr>';
     }
 
     try {
@@ -1587,7 +1586,7 @@ async function loadCmsPosts(append = false) {
             limit: 20,
             status: state.cmsFilters.status,
             moderationStatus: state.cmsFilters.moderationStatus,
-            search: state.cmsSearchQuery,
+            search: state.cmsSearchQueries.posts,
         });
 
         if (state.cmsLastId) {
@@ -1599,14 +1598,14 @@ async function loadCmsPosts(append = false) {
         state.cmsLastId = data.lastId;
         state.cmsHasMore = data.hasMore;
 
-        renderPostsTable();
+        renderPosts();
 
         if (loadMoreBtn) {
             loadMoreBtn.classList.toggle('hidden', !state.cmsHasMore);
         }
     } catch (e) {
         console.error('Failed to load posts:', e);
-        tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Failed to load posts</td></tr>';
+        if (content) content.innerHTML = '<div class="text-center p-8 text-danger">Failed to load posts</div>';
     }
 }
 
@@ -1667,7 +1666,7 @@ let searchTimer;
 function handlePostsSearch(event) {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
-        state.cmsSearchQuery = event.target.value;
+        state.cmsSearchQueries.posts = event.target.value;
         loadCmsPosts();
     }, 500);
 }
@@ -1761,6 +1760,211 @@ async function updatePostStatus(id) {
     }
 }
 
+function renderPosts() {
+    const container = document.getElementById('postsContent');
+    if (!container) return;
+
+    if (state.postsViewMode === 'grid') {
+        renderPostsGrid(container);
+    } else {
+        renderPostsTable(container);
+    }
+
+    updateBulkBar();
+}
+
+function renderPostsTable(container) {
+    if (!state.cmsPosts || state.cmsPosts.length === 0) {
+        container.innerHTML = '<div class="text-center p-8 text-muted">No posts found</div>';
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="table-container">
+            <table class="cms-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox" class="post-checkbox" onchange="toggleSelectAll(event)"></th>
+                        <th>Image</th>
+                        <th>Author</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Moderation</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="postsTableBody">
+                    ${state.cmsPosts.map(post => {
+        const thumbUrl = post.content?.thumbnailUrl || post.content?.url || post.content?.jpegUrl || '';
+        const authorName = post.author?.username || post.author?.displayName || 'Unknown';
+        const date = post.createdAt ? new Date(post.createdAt) : null;
+        const isSelected = state.selectedPosts.has(post.id);
+
+        const statusClass =
+            post.processingStatus === 'completed' ? 'badge-success' :
+                post.processingStatus === 'failed' ? 'badge-danger' : 'badge-info';
+
+        const modClass =
+            post.moderationStatus === 'approved' ? 'badge-success' :
+                post.moderationStatus === 'flagged' ? 'badge-warning' :
+                    post.moderationStatus === 'rejected' ? 'badge-danger' : 'badge-info';
+
+        return `
+                            <tr>
+                                <td><input type="checkbox" class="post-checkbox post-select" data-id="${post.id}" ${isSelected ? 'checked' : ''} onchange="togglePostSelection('${post.id}')"></td>
+                                <td><img src="${escapeHtml(thumbUrl)}" class="cms-thumb" onerror="this.src='https://placehold.co/40x40?text=?'"></td>
+                                <td>
+                                    <div class="flex items-center gap-2">
+                                        <img src="${post.author?.avatarUrl || 'https://placehold.co/32x32?text=U'}" class="cms-user-avatar">
+                                        <span class="text-xs">${escapeHtml(authorName)}</span>
+                                    </div>
+                                </td>
+                                <td><div class="text-xs truncate" style="max-width: 200px;" title="${escapeHtml(post.description || '')}">${escapeHtml(post.description || 'No description')}</div></td>
+                                <td><span class="badge ${statusClass}">${post.processingStatus || 'pending'}</span></td>
+                                <td><span class="badge ${modClass}">${post.moderationStatus || 'pending'}</span></td>
+                                <td class="text-xs text-muted">${date ? getRelativeTime(date) : 'Unknown'}</td>
+                                <td>
+                                    <div class="flex gap-2">
+                                        <button class="btn btn-sm btn-secondary" onclick="viewPostDetails('${post.id}')">View</button>
+                                        <button class="btn btn-sm btn-ghost" onclick="deleteCmsPost('${post.id}')">🗑️</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function renderPostsGrid(container) {
+    if (!state.cmsPosts || state.cmsPosts.length === 0) {
+        container.innerHTML = '<div class="text-center p-8 text-muted">No posts found</div>';
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="posts-grid">
+            ${state.cmsPosts.map(post => {
+        const thumbUrl = post.content?.thumbnailUrl || post.content?.url || post.content?.jpegUrl || '';
+        const authorName = post.author?.username || post.author?.displayName || 'Unknown';
+        const isSelected = state.selectedPosts.has(post.id);
+
+        const modClass =
+            post.moderationStatus === 'approved' ? 'badge-success' :
+                post.moderationStatus === 'flagged' ? 'badge-warning' :
+                    post.moderationStatus === 'rejected' ? 'badge-danger' : 'badge-info';
+
+        return `
+                    <div class="post-grid-card ${isSelected ? 'selected' : ''}">
+                        <div class="post-grid-selection">
+                            <input type="checkbox" class="post-checkbox post-select" data-id="${post.id}" ${isSelected ? 'checked' : ''} onchange="togglePostSelection('${post.id}')">
+                        </div>
+                        <div class="post-grid-image-wrapper" onclick="viewPostDetails('${post.id}')">
+                            <img src="${escapeHtml(thumbUrl)}" onerror="this.src='https://placehold.co/200x200?text=?'">
+                        </div>
+                        <div class="post-grid-info">
+                            <div class="flex items-center gap-2 mb-1">
+                                <img src="${post.author?.avatarUrl || 'https://placehold.co/20x20?text=U'}" class="cms-user-avatar" style="width:16px; height:16px;">
+                                <span class="text-xs text-muted truncate">${escapeHtml(authorName)}</span>
+                            </div>
+                            <div class="text-xs truncate font-medium">${escapeHtml(post.description || 'No description')}</div>
+                            <div class="post-grid-meta">
+                                <span class="badge ${modClass}" style="font-size: 8px;">${post.moderationStatus || 'pending'}</span>
+                                <span class="text-muted" style="font-size: 10px;">❤️ ${post.likeCount || 0}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+    }).join('')}
+        </div>
+    `;
+}
+
+function togglePostsView(view) {
+    state.postsViewMode = view;
+    renderPostsPage(document.getElementById('pageContainer'));
+}
+
+function togglePostSelection(id) {
+    if (state.selectedPosts.has(id)) {
+        state.selectedPosts.delete(id);
+    } else {
+        state.selectedPosts.add(id);
+    }
+    updateBulkBar();
+}
+
+function toggleSelectAll(event) {
+    const checked = event.target.checked;
+    if (checked) {
+        state.cmsPosts.forEach(p => state.selectedPosts.add(p.id));
+    } else {
+        state.selectedPosts.clear();
+    }
+    renderPosts();
+}
+
+function clearSelection() {
+    state.selectedPosts.clear();
+    updateBulkBar();
+    const selectAll = document.querySelector('.post-checkbox[onchange="toggleSelectAll(event)"]');
+    if (selectAll) selectAll.checked = false;
+    document.querySelectorAll('.post-select').forEach(cb => cb.checked = false);
+}
+
+function updateBulkBar() {
+    const bar = document.getElementById('bulkActionsBar');
+    const count = document.getElementById('bulkSelectedCount');
+    if (!bar || !count) return;
+
+    const size = state.selectedPosts.size;
+    if (size > 0) {
+        count.textContent = `${size} Selected`;
+        bar.classList.add('visible');
+    } else {
+        bar.classList.remove('visible');
+    }
+}
+
+async function handleBulkModerate(action) {
+    const ids = Array.from(state.selectedPosts);
+    if (!confirm(`Are you sure you want to ${action} ${ids.length} posts?`)) return;
+
+    try {
+        await api('/api/cms/posts/bulk/moderate', {
+            method: 'POST',
+            body: JSON.stringify({ ids, action }),
+        });
+        showToast(`Successfully ${action}d ${ids.length} posts`, 'success');
+        clearSelection();
+        loadCmsPosts();
+    } catch (e) {
+        console.error('Bulk moderation failed:', e);
+        showToast('Bulk moderation failed', 'error');
+    }
+}
+
+async function handleBulkDelete() {
+    const ids = Array.from(state.selectedPosts);
+    if (!confirm(`Are you sure you want to DELETE ${ids.length} posts? This cannot be undone!`)) return;
+
+    try {
+        await api('/api/cms/posts/bulk/delete', {
+            method: 'POST',
+            body: JSON.stringify({ ids }),
+        });
+        showToast(`Successfully deleted ${ids.length} posts`, 'success');
+        clearSelection();
+        loadCmsPosts();
+    } catch (e) {
+        console.error('Bulk delete failed:', e);
+        showToast('Bulk delete failed', 'error');
+    }
+}
+
 async function deleteCmsPost(id) {
     if (!confirm('Are you sure you want to delete this post? This cannot be undone.')) return;
 
@@ -1791,7 +1995,9 @@ async function renderUsersPage(container) {
             <div class="card-body">
                 <div class="cms-table-header">
                     <input type="text" class="form-input cms-search-input" id="usersSearch" 
-                           placeholder="Search by username or email..." oninput="handleUsersSearch(event)">
+                           placeholder="Search by username or email..." 
+                           value="${state.cmsSearchQueries.users}"
+                           oninput="handleUsersSearch(event)">
                 </div>
 
                 <div class="table-container">
@@ -1828,13 +2034,13 @@ async function loadCmsUsers(append = false) {
 
     if (!append) {
         state.cmsLastId = null;
-        tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>';
+        if (tableBody) tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>';
     }
 
     try {
         const params = new URLSearchParams({
             limit: 20,
-            search: state.cmsSearchQuery,
+            search: state.cmsSearchQueries.users,
         });
 
         if (state.cmsLastId) {
@@ -1898,7 +2104,7 @@ let usersSearchTimer;
 function handleUsersSearch(event) {
     clearTimeout(usersSearchTimer);
     usersSearchTimer = setTimeout(() => {
-        state.cmsSearchQuery = event.target.value;
+        state.cmsSearchQueries.users = event.target.value;
         loadCmsUsers();
     }, 500);
 }

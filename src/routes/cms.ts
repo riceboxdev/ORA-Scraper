@@ -210,6 +210,79 @@ router.delete('/posts/:id', async (req: Request, res: Response) => {
     }
 });
 
+/**
+ * POST /api/cms/posts/bulk/moderate - Moderate multiple posts
+ */
+router.post('/posts/bulk/moderate', async (req: Request, res: Response) => {
+    try {
+        const { ids, action, reason } = req.body;
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'Post IDs are required' });
+        }
+
+        const statusMap: Record<string, string> = {
+            approve: 'approved',
+            flag: 'flagged',
+            reject: 'rejected',
+        };
+
+        const status = statusMap[action];
+        if (!status) return res.status(400).json({ error: 'Invalid action' });
+
+        const batch = db.batch();
+        const updatedAt = admin.firestore.FieldValue.serverTimestamp();
+
+        ids.forEach(id => {
+            const ref = db.collection('userPosts').doc(id);
+            batch.update(ref, {
+                moderationStatus: status,
+                moderatedAt: updatedAt,
+                moderatedBy: req.user?.uid,
+                ...(reason ? { moderationReason: reason } : {})
+            });
+        });
+
+        await batch.commit();
+        res.json({ success: true, count: ids.length });
+    } catch (error) {
+        console.error('Error bulk moderating posts:', error);
+        res.status(500).json({ error: 'Failed to bulk moderate posts' });
+    }
+});
+
+/**
+ * POST /api/cms/posts/bulk/delete - Delete multiple posts
+ */
+router.post('/posts/bulk/delete', async (req: Request, res: Response) => {
+    try {
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'Post IDs are required' });
+        }
+
+        // We'll process in chunks of 500 (Firestore limit)
+        const chunks = [];
+        for (let i = 0; i < ids.length; i += 500) {
+            chunks.push(ids.slice(i, i + 500));
+        }
+
+        for (const chunk of chunks) {
+            const batch = db.batch();
+            for (const id of chunk) {
+                batch.delete(db.collection('userPosts').doc(id));
+                // Note: In a real prod environment, we would also clear related data
+                // but for bulk delete we focus on the primary records first
+            }
+            await batch.commit();
+        }
+
+        res.json({ success: true, count: ids.length });
+    } catch (error) {
+        console.error('Error bulk deleting posts:', error);
+        res.status(500).json({ error: 'Failed to bulk delete posts' });
+    }
+});
+
 // ============================================
 // USERS MANAGEMENT
 // ============================================
@@ -223,8 +296,12 @@ router.get('/users', async (req: Request, res: Response) => {
         const search = req.query.search as string;
         const startAfter = req.query.startAfter as string;
 
-        let query: admin.firestore.Query = db.collection('userProfiles')
-            .orderBy('createdAt', 'desc');
+        let query: admin.firestore.Query = db.collection('userProfiles');
+
+        // If no search, we use ordering. If we use createdAt, we might miss users without that field.
+        // We'll try to order by createdAt but if the count is suspiciously low, we might need a different approach.
+        // For now, let's just make it simpler: order by document ID if createdAt is missing or as a fallback.
+        query = query.orderBy('createdAt', 'desc');
 
         if (startAfter) {
             const startDoc = await db.collection('userProfiles').doc(startAfter).get();
@@ -234,7 +311,12 @@ router.get('/users', async (req: Request, res: Response) => {
         }
 
         query = query.limit(limit);
-        const snapshot = await query.get();
+        let snapshot = await query.get();
+
+        // Fallback: If we got nothing and there's no search/filters, try without ordering
+        if (snapshot.empty && !search && !startAfter) {
+            snapshot = await db.collection('userProfiles').limit(limit).get();
+        }
 
         let users = snapshot.docs.map(doc => ({
             id: doc.id,

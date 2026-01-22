@@ -304,6 +304,18 @@
         </div>
     </div>
 
+    <!-- Bulk Actions Bar -->
+    <div class="bulk-actions-bar" id="bulkActionsBar">
+        <div class="bulk-count" id="bulkSelectedCount">0 Selected</div>
+        <div class="bulk-btns">
+            <button class="btn-bulk" onclick="handleBulkModerate('approve')">Approve All</button>
+            <button class="btn-bulk" onclick="handleBulkModerate('reject')">Reject All</button>
+            <button class="btn-bulk btn-bulk-danger" onclick="handleBulkDelete()">Delete All</button>
+            <button class="btn-bulk" onclick="clearSelection()"
+                style="background: transparent; border: 1px solid rgba(255,255,255,0.3);">Cancel</button>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 
