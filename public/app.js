@@ -9,11 +9,13 @@
 
 // Firebase configuration - angles-423a4 project
 const firebaseConfig = {
-    apiKey: "AIzaSyA65aFDlUYlYo24el93ZEdd0ErEiuQzB3A",
+    apiKey: "AIzaSyCukE0XI_QKnVUd1PX3oqi5jQXs_gOzCfQ",
     authDomain: "angles-423a4.firebaseapp.com",
     projectId: "angles-423a4",
     storageBucket: "angles-423a4.firebasestorage.app",
     messagingSenderId: "1024758653829",
+    appId: "1:1024758653829:web:4d5d71043ae4e752bedaec",
+    measurementId: "G-1WCW1XFN35"
 };
 
 // Initialize Firebase
