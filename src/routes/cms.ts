@@ -23,7 +23,7 @@ router.post('/posts/backfill-embeddings', async (req: Request, res: Response) =>
         const batchIsForce = force === true;
         const maxLimit = Math.min(limit, 500); // Firestore batch limit
 
-        let query = db.collection('userPosts');
+        let query: admin.firestore.Query = db.collection('userPosts');
 
         // If not forced, only target failed or missing status (though 'missing' is hard to query directly efficiently without 'where field == null' which firestore doesn't support easily for all cases, so we focus on explicit states or use a known default).
         // Actually, we'll assume we want to retry 'failed'.
