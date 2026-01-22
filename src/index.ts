@@ -1,5 +1,6 @@
 /**
  * Main entry point for ORA Scraper Service
+ * With Firebase Authentication for admin access
  */
 
 import express from 'express';
@@ -9,7 +10,8 @@ import { fileURLToPath } from 'url';
 
 import { config } from './config.js';
 import { ensureSystemAccount } from './firebase.js';
-import { getScheduleConfig } from './db.js';
+import * as firestoreDb from './firestore-db.js';
+import { requireAdminAuth } from './middleware/auth.js';
 import sourcesRouter from './routes/sources.js';
 import jobsRouter, { setRunScrapeFunction, markLastRun } from './routes/jobs.js';
 import imagesRouter from './routes/images.js';
@@ -23,16 +25,26 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Health check
+// Health check (public)
 app.get('/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API routes
-app.use('/api/sources', sourcesRouter);
-app.use('/api/jobs', jobsRouter);
-app.use('/api/images', imagesRouter);
-app.use('/api/settings', settingsRouter);
+// Auth check endpoint (public - used by frontend to verify tokens)
+app.post('/api/auth/verify', requireAdminAuth, (req, res) => {
+    res.json({
+        authenticated: true,
+        uid: req.user?.uid,
+        email: req.user?.email,
+        isAdmin: req.user?.isAdmin,
+    });
+});
+
+// Protected API routes - require admin auth
+app.use('/api/sources', requireAdminAuth, sourcesRouter);
+app.use('/api/jobs', requireAdminAuth, jobsRouter);
+app.use('/api/images', requireAdminAuth, imagesRouter);
+app.use('/api/settings', requireAdminAuth, settingsRouter);
 
 // Fallback to index.html for SPA
 app.get('*', (_req, res) => {
@@ -42,8 +54,8 @@ app.get('*', (_req, res) => {
 // Scheduled job
 let scheduledTask: cron.ScheduledTask | null = null;
 
-function updateSchedule(): void {
-    const { intervalHours, enabled } = getScheduleConfig();
+async function updateSchedule(): Promise<void> {
+    const scheduleConfig = await firestoreDb.getScheduleConfig();
 
     // Stop existing task
     if (scheduledTask) {
@@ -51,14 +63,14 @@ function updateSchedule(): void {
         scheduledTask = null;
     }
 
-    if (!enabled) {
+    if (!scheduleConfig.enabled) {
         console.log('Scheduler disabled');
         return;
     }
 
     // Schedule new task (run at start of each interval)
     // e.g., every 4 hours: "0 */4 * * *"
-    const cronExpression = `0 */${intervalHours} * * *`;
+    const cronExpression = `0 */${scheduleConfig.intervalHours} * * *`;
     console.log(`Scheduling scrape job with cron: ${cronExpression}`);
 
     scheduledTask = cron.schedule(cronExpression, async () => {
@@ -68,18 +80,18 @@ function updateSchedule(): void {
 }
 
 async function runScrape(): Promise<void> {
-    const { batchSize, enabled } = getScheduleConfig();
+    const scheduleConfig = await firestoreDb.getScheduleConfig();
 
-    if (!enabled) {
+    if (!scheduleConfig.enabled) {
         console.log('Scraping disabled, skipping');
         return;
     }
 
-    console.log(`Starting scrape with batch size: ${batchSize}`);
-    markLastRun();
+    console.log(`Starting scrape with batch size: ${scheduleConfig.batchSize}`);
+    await markLastRun();
 
     try {
-        await runScrapeJob(batchSize);
+        await runScrapeJob(scheduleConfig.batchSize);
         console.log('Scrape completed');
     } catch (error) {
         console.error('Scrape failed:', error);
@@ -95,13 +107,17 @@ async function start(): Promise<void> {
         // Ensure system account exists
         await ensureSystemAccount();
 
+        // Initialize config (creates default if doesn't exist)
+        await firestoreDb.getConfig();
+
         // Start scheduler
-        updateSchedule();
+        await updateSchedule();
 
         // Start Express
         app.listen(config.port, () => {
             console.log(`ORA Scraper running at http://localhost:${config.port}`);
             console.log(`Environment: ${config.nodeEnv}`);
+            console.log('Authentication: Admin claim required');
         });
     } catch (error) {
         console.error('Failed to start server:', error);

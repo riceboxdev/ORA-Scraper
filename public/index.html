@@ -9,10 +9,47 @@
     <link rel="stylesheet" href="styles.css">
     <!-- Chart.js for stats visualization -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 </head>
 
 <body>
-    <div class="app-layout">
+    <!-- Login Page (shown when not authenticated) -->
+    <div class="login-page" id="loginPage">
+        <div class="login-container">
+            <div class="login-logo">
+                <span class="login-logo-icon">🖼️</span>
+                <h1>ORA Scraper</h1>
+                <p class="text-muted">Admin Dashboard</p>
+            </div>
+
+            <div class="login-card">
+                <h2>Sign In</h2>
+                <p class="text-muted mb-4">Only administrators can access this dashboard</p>
+
+                <form id="loginForm" onsubmit="handleLogin(event)">
+                    <div class="form-group mb-4">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="loginEmail" placeholder="admin@example.com" required
+                            style="width: 100%;">
+                    </div>
+                    <div class="form-group mb-4">
+                        <label class="form-label">Password</label>
+                        <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required
+                            style="width: 100%;">
+                    </div>
+                    <div id="loginError" class="alert alert-danger mb-4" style="display: none;"></div>
+                    <button type="submit" class="btn btn-primary" id="loginBtn" style="width: 100%;">
+                        Sign In
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App (shown when authenticated) -->
+    <div class="app-layout" id="appLayout" style="display: none;">
         <!-- Sidebar Navigation -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
@@ -53,6 +90,10 @@
             </nav>
 
             <div class="sidebar-footer">
+                <div class="sidebar-user" id="sidebarUser">
+                    <span class="user-email" id="userEmail"></span>
+                    <button class="btn btn-sm btn-ghost" onclick="handleLogout()">Logout</button>
+                </div>
                 <div class="sidebar-status">
                     <span class="status-dot" id="sidebarStatusDot"></span>
                     <span id="sidebarStatusText">Loading...</span>

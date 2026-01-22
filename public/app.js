@@ -1,7 +1,29 @@
 /**
  * ORA Scraper Admin UI - Main Application
- * Multi-page SPA with enhanced monitoring, image management, and configuration
+ * Multi-page SPA with Firebase Authentication
  */
+
+// ============================================
+// FIREBASE CONFIG & AUTH
+// ============================================
+
+// Firebase configuration - Update with your project config
+const firebaseConfig = {
+    apiKey: "AIzaSyCe08E09lI__H1DmCR3gQPMdF2pQG2IpDI",
+    authDomain: "ora-rethink.firebaseapp.com",
+    projectId: "ora-rethink",
+    storageBucket: "ora-rethink.firebasestorage.app",
+    messagingSenderId: "529633812236",
+    appId: "1:529633812236:web:c27ac58bc1f7c85d837c05"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+
+// Auth state
+let currentUser = null;
+let authToken = null;
 
 // ============================================
 // STATE MANAGEMENT
@@ -32,14 +54,154 @@ const state = {
 };
 
 // ============================================
-// API UTILITIES
+// AUTH FUNCTIONS
+// ============================================
+
+function initAuth() {
+    auth.onAuthStateChanged(async (user) => {
+        if (user) {
+            // User is signed in
+            currentUser = user;
+
+            // Get ID token
+            try {
+                authToken = await user.getIdToken();
+
+                // Verify admin access with server
+                const result = await verifyAdminAccess();
+                if (result.isAdmin) {
+                    showApp();
+                    document.getElementById('userEmail').textContent = user.email;
+                    initRouter();
+                    updateDashboardStatus();
+
+                    // Refresh token periodically
+                    setInterval(async () => {
+                        authToken = await user.getIdToken(true);
+                    }, 50 * 60 * 1000); // Refresh every 50 minutes
+                } else {
+                    showLoginError('Access denied. Admin privileges required.');
+                    await auth.signOut();
+                }
+            } catch (error) {
+                console.error('Auth error:', error);
+                showLoginError('Failed to verify access. Please try again.');
+                await auth.signOut();
+            }
+        } else {
+            // User is signed out
+            currentUser = null;
+            authToken = null;
+            showLogin();
+        }
+    });
+}
+
+async function verifyAdminAccess() {
+    const res = await fetch('/api/auth/verify', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+        },
+    });
+
+    if (!res.ok) {
+        if (res.status === 403) {
+            return { isAdmin: false };
+        }
+        throw new Error('Verification failed');
+    }
+
+    return res.json();
+}
+
+async function handleLogin(event) {
+    event.preventDefault();
+
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    const btn = document.getElementById('loginBtn');
+    const errorDiv = document.getElementById('loginError');
+
+    btn.disabled = true;
+    btn.textContent = 'Signing in...';
+    errorDiv.style.display = 'none';
+
+    try {
+        await auth.signInWithEmailAndPassword(email, password);
+        // onAuthStateChanged will handle the rest
+    } catch (error) {
+        console.error('Login error:', error);
+        showLoginError(getAuthErrorMessage(error.code));
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+    }
+}
+
+async function handleLogout() {
+    try {
+        await auth.signOut();
+    } catch (error) {
+        console.error('Logout error:', error);
+        showToast('Failed to sign out', 'error');
+    }
+}
+
+function showLoginError(message) {
+    const errorDiv = document.getElementById('loginError');
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+}
+
+function getAuthErrorMessage(code) {
+    switch (code) {
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+            return 'Invalid email or password';
+        case 'auth/too-many-requests':
+            return 'Too many failed attempts. Please try again later.';
+        case 'auth/user-disabled':
+            return 'This account has been disabled';
+        default:
+            return 'Authentication failed. Please try again.';
+    }
+}
+
+function showLogin() {
+    document.getElementById('loginPage').style.display = 'flex';
+    document.getElementById('appLayout').style.display = 'none';
+}
+
+function showApp() {
+    document.getElementById('loginPage').style.display = 'none';
+    document.getElementById('appLayout').style.display = 'flex';
+}
+
+// ============================================
+// API UTILITIES (with auth token)
 // ============================================
 
 async function api(url, options = {}) {
+    if (!authToken) {
+        throw new Error('Not authenticated');
+    }
+
     const res = await fetch(url, {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+        },
         ...options,
     });
+
+    if (res.status === 401 || res.status === 403) {
+        // Token expired or unauthorized
+        showToast('Session expired. Please sign in again.', 'error');
+        await auth.signOut();
+        throw new Error('Unauthorized');
+    }
+
     if (!res.ok) {
         const error = await res.text();
         throw new Error(`HTTP ${res.status}: ${error}`);
@@ -533,7 +695,7 @@ function renderSourceCard(source) {
     return `
         <div class="source-card ${isSelected ? 'selected' : ''}" data-source-id="${source.id}">
             <div class="source-checkbox ${isSelected ? 'checked' : ''}" 
-                 onclick="toggleSourceSelection(${source.id}, event)"></div>
+                 onclick="toggleSourceSelection('${source.id}', event)"></div>
             
             <div class="source-info">
                 <div class="source-header">
@@ -551,9 +713,9 @@ function renderSourceCard(source) {
             
             <div class="source-actions">
                 <div class="toggle ${source.enabled ? 'active' : ''}" 
-                     onclick="toggleSource(${source.id}, ${!source.enabled})"></div>
-                <button class="btn btn-sm btn-secondary" onclick="editSource(${source.id})">Edit</button>
-                <button class="btn btn-sm btn-ghost" onclick="deleteSource(${source.id})">🗑️</button>
+                     onclick="toggleSource('${source.id}', ${!source.enabled})"></div>
+                <button class="btn btn-sm btn-secondary" onclick="editSource('${source.id}')">Edit</button>
+                <button class="btn btn-sm btn-ghost" onclick="deleteSource('${source.id}')">🗑️</button>
             </div>
         </div>
     `;
@@ -1253,19 +1415,16 @@ function getRelativeTime(date) {
 // ============================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize router
-    initRouter();
+    // Initialize Firebase Auth
+    initAuth();
 
     // Set up source type change listener
     document.getElementById('sourceType').addEventListener('change', updateSourceQueryLabel);
 
-    // Start status polling
+    // Start status polling (only when authenticated)
     setInterval(() => {
-        if (state.currentPage === 'dashboard') {
+        if (currentUser && state.currentPage === 'dashboard') {
             updateDashboardStatus();
         }
     }, 30000);
-
-    // Initial status check
-    updateDashboardStatus();
 });

@@ -1,41 +1,20 @@
 /**
  * Express routes for settings management
+ * Uses Firestore for persistent storage
  */
 
 import { Router, Request, Response } from 'express';
-import { db, getSetting, setSetting, queries } from '../db.js';
+import * as firestoreDb from '../firestore-db.js';
 
 const router = Router();
 
-// Ensure quality_settings table exists
-db.exec(`
-    CREATE TABLE IF NOT EXISTS quality_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-    )
-`);
-
-// Initialize default quality settings
-const initQualitySetting = db.prepare(`
-    INSERT OR IGNORE INTO quality_settings (key, value) VALUES (?, ?)
-`);
-initQualitySetting.run('minScore', '0.6');
-initQualitySetting.run('allowedTypes', JSON.stringify(['photography', 'art', 'design']));
-
 // Get quality filter settings
-router.get('/quality', (_req: Request, res: Response) => {
+router.get('/quality', async (_req: Request, res: Response) => {
     try {
-        const minScore = db.prepare(
-            'SELECT value FROM quality_settings WHERE key = ?'
-        ).get('minScore') as { value: string } | undefined;
-
-        const allowedTypes = db.prepare(
-            'SELECT value FROM quality_settings WHERE key = ?'
-        ).get('allowedTypes') as { value: string } | undefined;
-
+        const config = await firestoreDb.getConfig();
         res.json({
-            minScore: parseFloat(minScore?.value || '0.6'),
-            allowedTypes: allowedTypes ? JSON.parse(allowedTypes.value) : ['photography', 'art', 'design'],
+            minScore: config.qualityMinScore,
+            allowedTypes: config.qualityAllowedTypes,
         });
     } catch (error) {
         console.error('Error fetching quality settings:', error);
@@ -44,22 +23,19 @@ router.get('/quality', (_req: Request, res: Response) => {
 });
 
 // Update quality filter settings
-router.put('/quality', (req: Request, res: Response) => {
+router.put('/quality', async (req: Request, res: Response) => {
     try {
         const { minScore, allowedTypes } = req.body;
 
+        const updates: Partial<firestoreDb.ScraperConfig> = {};
         if (minScore !== undefined) {
-            db.prepare(
-                'INSERT OR REPLACE INTO quality_settings (key, value) VALUES (?, ?)'
-            ).run('minScore', String(minScore));
+            updates.qualityMinScore = minScore;
         }
-
         if (allowedTypes !== undefined) {
-            db.prepare(
-                'INSERT OR REPLACE INTO quality_settings (key, value) VALUES (?, ?)'
-            ).run('allowedTypes', JSON.stringify(allowedTypes));
+            updates.qualityAllowedTypes = allowedTypes;
         }
 
+        await firestoreDb.updateConfig(updates);
         res.json({ success: true });
     } catch (error) {
         console.error('Error updating quality settings:', error);
@@ -68,37 +44,23 @@ router.put('/quality', (req: Request, res: Response) => {
 });
 
 // Export all settings
-router.get('/export', (_req: Request, res: Response) => {
+router.get('/export', async (_req: Request, res: Response) => {
     try {
-        // Get schedule settings
-        const schedule = {
-            batchSize: parseInt(getSetting('batchSize') || '30', 10),
-            intervalHours: parseInt(getSetting('intervalHours') || '4', 10),
-            enabled: getSetting('enabled') === 'true',
-        };
-
-        // Get quality settings
-        const minScore = db.prepare(
-            'SELECT value FROM quality_settings WHERE key = ?'
-        ).get('minScore') as { value: string } | undefined;
-
-        const allowedTypes = db.prepare(
-            'SELECT value FROM quality_settings WHERE key = ?'
-        ).get('allowedTypes') as { value: string } | undefined;
-
-        const quality = {
-            minScore: parseFloat(minScore?.value || '0.6'),
-            allowedTypes: allowedTypes ? JSON.parse(allowedTypes.value) : ['photography', 'art', 'design'],
-        };
-
-        // Get sources
-        const sources = queries.getAllSources.all();
+        const config = await firestoreDb.getConfig();
+        const sources = await firestoreDb.getAllSources();
 
         res.json({
             exportedAt: new Date().toISOString(),
             version: '1.0',
-            schedule,
-            quality,
+            schedule: {
+                batchSize: config.batchSize,
+                intervalHours: config.intervalHours,
+                enabled: config.enabled,
+            },
+            quality: {
+                minScore: config.qualityMinScore,
+                allowedTypes: config.qualityAllowedTypes,
+            },
             sources,
         });
     } catch (error) {
@@ -108,45 +70,31 @@ router.get('/export', (_req: Request, res: Response) => {
 });
 
 // Import settings
-router.post('/import', (req: Request, res: Response) => {
+router.post('/import', async (req: Request, res: Response) => {
     try {
         const { schedule, quality, sources } = req.body;
 
         // Import schedule settings
         if (schedule) {
-            if (schedule.batchSize !== undefined) {
-                setSetting('batchSize', String(schedule.batchSize));
-            }
-            if (schedule.intervalHours !== undefined) {
-                setSetting('intervalHours', String(schedule.intervalHours));
-            }
-            if (schedule.enabled !== undefined) {
-                setSetting('enabled', String(schedule.enabled));
-            }
+            const updates: Partial<firestoreDb.ScraperConfig> = {};
+            if (schedule.batchSize !== undefined) updates.batchSize = schedule.batchSize;
+            if (schedule.intervalHours !== undefined) updates.intervalHours = schedule.intervalHours;
+            if (schedule.enabled !== undefined) updates.enabled = schedule.enabled;
+            await firestoreDb.updateConfig(updates);
         }
 
         // Import quality settings
         if (quality) {
-            if (quality.minScore !== undefined) {
-                db.prepare(
-                    'INSERT OR REPLACE INTO quality_settings (key, value) VALUES (?, ?)'
-                ).run('minScore', String(quality.minScore));
-            }
-            if (quality.allowedTypes !== undefined) {
-                db.prepare(
-                    'INSERT OR REPLACE INTO quality_settings (key, value) VALUES (?, ?)'
-                ).run('allowedTypes', JSON.stringify(quality.allowedTypes));
-            }
+            const updates: Partial<firestoreDb.ScraperConfig> = {};
+            if (quality.minScore !== undefined) updates.qualityMinScore = quality.minScore;
+            if (quality.allowedTypes !== undefined) updates.qualityAllowedTypes = quality.allowedTypes;
+            await firestoreDb.updateConfig(updates);
         }
 
-        // Import sources (optional - adds new sources, doesn't delete existing)
+        // Import sources (adds new sources)
         if (sources && Array.isArray(sources)) {
-            const insertSource = db.prepare(
-                'INSERT OR IGNORE INTO sources (type, query, enabled) VALUES (?, ?, ?)'
-            );
-
             for (const source of sources) {
-                insertSource.run(source.type, source.query, source.enabled ? 1 : 0);
+                await firestoreDb.createSource(source.type, source.query);
             }
         }
 
