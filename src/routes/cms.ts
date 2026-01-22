@@ -15,6 +15,56 @@ const router = Router();
 // ============================================
 
 /**
+ * POST /api/cms/posts/backfill-embeddings - Reset embedding status to 'pending'
+ */
+router.post('/posts/backfill-embeddings', async (req: Request, res: Response) => {
+    try {
+        const { force, limit = 100 } = req.body;
+        const batchIsForce = force === true;
+        const maxLimit = Math.min(limit, 500); // Firestore batch limit
+
+        let query = db.collection('userPosts');
+
+        // If not forced, only target failed or missing status (though 'missing' is hard to query directly efficiently without 'where field == null' which firestore doesn't support easily for all cases, so we focus on explicit states or use a known default).
+        // Actually, we'll assume we want to retry 'failed'.
+        if (!batchIsForce) {
+            query = query.where('embeddingStatus', '==', 'failed');
+        }
+
+        const snapshot = await query.limit(maxLimit).get();
+        if (snapshot.empty) {
+            return res.json({ count: 0, message: 'No posts found to backfill' });
+        }
+
+        const batch = db.batch();
+        let count = 0;
+
+        snapshot.docs.forEach(doc => {
+            // Optional: Check if status is 'completed' and we are not forcing
+            if (!batchIsForce && doc.data().embeddingStatus === 'completed') return;
+
+            batch.update(doc.ref, {
+                embeddingStatus: 'pending',
+                lastProcessedAt: admin.firestore.FieldValue.serverTimestamp() // Optional: touch a timestamp so it gets picked up
+            });
+            count++;
+        });
+
+        await batch.commit();
+
+        res.json({
+            count,
+            message: `Successfully queued ${count} posts for embedding generation.`
+        });
+
+    } catch (error) {
+        console.error('Error backfilling embeddings:', error);
+        res.status(500).json({ error: 'Failed to backfill embeddings' });
+    }
+});
+
+
+/**
  * GET /api/cms/posts - List posts with filters
  * Query params: limit, startAfter, status, moderationStatus, authorId, search
  */

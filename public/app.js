@@ -1358,6 +1358,9 @@ async function renderSettingsPage(container) {
                         <button class="btn btn-secondary" onclick="importSettings()">
                             📥 Import Settings
                         </button>
+                        <button class="btn btn-secondary" onclick="backfillEmbeddings()">
+                            🧠 Backfill Embeddings
+                        </button>
                         <button class="btn btn-danger" onclick="clearFailedCache()">
                             🗑️ Clear Failed Images Cache
                         </button>
@@ -1368,6 +1371,23 @@ async function renderSettingsPage(container) {
     `;
 
     await loadSettingsData();
+}
+
+async function backfillEmbeddings() {
+    if (!confirm('This will queue all failed posts for embedding generation. Continue?')) {
+        return;
+    }
+
+    try {
+        const res = await api('/api/cms/posts/backfill-embeddings', {
+            method: 'POST',
+            body: JSON.stringify({ force: false })
+        });
+        showToast(res.message, 'success');
+    } catch (e) {
+        console.error('Failed to backfill embeddings:', e);
+        showToast('Failed to trigger backfill', 'error');
+    }
 }
 
 async function loadSettingsData() {
