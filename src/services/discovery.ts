@@ -58,12 +58,27 @@ export const discoveryService = {
             const clusters = await this.fetchClustersFromWorker(sampleSize);
             console.log(`[Discovery] Worker returned ${clusters.length} clusters.`);
 
-            // 3. Load existing categories for matching
-            const existingCategoriesSnap = await db.collection(CATEGORIES_COLLECTION).get();
-            const existingCategories = existingCategoriesSnap.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            })) as Category[];
+            // 3. Load ONLY relevant existing categories for matching (Scalable Check)
+            const slugsToCheck = clusters.map(c => this.generateSlug(c.name));
+            let existingCategories: Category[] = [];
+
+            if (slugsToCheck.length > 0) {
+                // Firestore 'in' query supports max 10/30 items depending on SDK version. 
+                // We'll chunk it to be safe (chunks of 10)
+                const chunkSize = 10;
+                for (let i = 0; i < slugsToCheck.length; i += chunkSize) {
+                    const chunk = slugsToCheck.slice(i, i + chunkSize);
+                    const snapshot = await db.collection(CATEGORIES_COLLECTION)
+                        .where('slug', 'in', chunk)
+                        .get();
+
+                    const chunkDocs = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    })) as Category[];
+                    existingCategories = [...existingCategories, ...chunkDocs];
+                }
+            }
 
             let topicsCreated = 0;
             let topicsUpdated = 0;
