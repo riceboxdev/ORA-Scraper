@@ -189,12 +189,28 @@ export const discoveryService = {
         const data = await response.json() as any;
         console.log('[Discovery] Worker Response:', JSON.stringify(data, null, 2));
 
-        if (!data.suggestions || data.suggestions.length === 0) {
-            console.warn('[Discovery] Worker returned NO suggestions. Response structure:', Object.keys(data));
+        // Handle rich suggestions format
+        if (data.suggestions && Array.isArray(data.suggestions)) {
+            return data.suggestions;
         }
 
-        // Assume worker parses structure as { suggestions: WorkerCluster[] }
-        return data.suggestions || [];
+        // Handle string-only legacy/fallback format
+        // Structure: { success: true, data: { ideas: ["Name 1", "Name 2"] } }
+        if (data.data && Array.isArray(data.data.ideas)) {
+            console.log('[Discovery] Adapting legacy string-list response');
+            return data.data.ideas.map((name: string) => ({
+                name,
+                description: `Discovered niche: ${name}`,
+                confidence: 0.7, // Default lower confidence for string-only matches
+                suggestedColor: '#' + Math.floor(Math.random() * 16777215).toString(16), // Random color
+                suggestedIcon: 'hash',
+                matchingTags: [name.toLowerCase().replace(/\s+/g, '-')],
+                thumbnailUrls: []
+            }));
+        }
+
+        console.warn('[Discovery] Worker returned NO compatible suggestions. Response structure:', Object.keys(data));
+        return [];
     },
 
     generateSlug(name: string): string {
