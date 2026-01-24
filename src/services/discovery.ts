@@ -187,6 +187,12 @@ export const discoveryService = {
         }
 
         const data = await response.json() as any;
+        console.log('[Discovery] Worker Response:', JSON.stringify(data, null, 2));
+
+        if (!data.suggestions || data.suggestions.length === 0) {
+            console.warn('[Discovery] Worker returned NO suggestions. Response structure:', Object.keys(data));
+        }
+
         // Assume worker parses structure as { suggestions: WorkerCluster[] }
         return data.suggestions || [];
     },
