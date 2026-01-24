@@ -17,7 +17,7 @@ import jobsRouter, { setRunScrapeFunction, markLastRun } from './routes/jobs.js'
 import imagesRouter from './routes/images.js';
 import settingsRouter from './routes/settings.js';
 import cmsRouter from './routes/cms.js';
-import { runScrapeJob } from './services/scraper.js';
+import { processCrawlQueue } from './services/crawler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -76,7 +76,9 @@ async function updateSchedule(): Promise<void> {
     console.log(`Scheduling scrape job with cron: ${cronExpression}`);
 
     scheduledTask = cron.schedule(cronExpression, async () => {
-        console.log('Scheduled scrape starting...');
+        console.log('Scheduled crawl starting...');
+        // For a crawler, we might want to run this more frequently or keep it running?
+        // For now, let's just trigger a batch processing
         await runScrape();
     });
 }
@@ -93,10 +95,13 @@ async function runScrape(): Promise<void> {
     await markLastRun();
 
     try {
-        await runScrapeJob(scheduleConfig.batchSize);
-        console.log('Scrape completed');
+        // Run a batch of crawl items
+        // In a real continuous crawler, this might loop until empty or time out
+        // For this scheduled version, we process X items per interval
+        await processCrawlQueue(scheduleConfig.batchSize);
+        console.log('Crawl batch completed');
     } catch (error) {
-        console.error('Scrape failed:', error);
+        console.error('Crawl failed:', error);
     }
 }
 

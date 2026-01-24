@@ -216,9 +216,14 @@ a:hover {
 }
 
 .nav-item-icon {
-    font-size: var(--text-md);
+    font-size: 18px;
+    /* Slightly larger for Phosphor icons */
     width: 20px;
-    text-align: center;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: inherit;
 }
 
 .sidebar-footer {

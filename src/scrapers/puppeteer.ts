@@ -32,203 +32,166 @@ export class PuppeteerScraper extends BaseScraper {
         return true;
     }
 
+    /**
+     * Legacy scrape method to satisfy BaseScraper interface.
+     * Uses the new visitPage method internally.
+     */
     async scrape(url: string, limit: number, config?: { crawlDepth?: number; followLinks?: boolean }): Promise<ScrapedImage[]> {
-        const { crawlDepth = 0, followLinks = false } = config || {};
+        // We ignore depth/recursion here as that is now handled by the Crawler Service
+        const result = await this.visitPage(url);
+        return result.images.slice(0, limit);
+    }
+
+    async visitPage(url: string): Promise<{ images: ScrapedImage[]; links: string[] }> {
         let page = null;
         const images: ScrapedImage[] = [];
-        const seenUrls = new Set<string>();
-        const visitedPages = new Set<string>();
-
-        // Queue for BFS: { url, depth }
-        const queue: { url: string; depth: number }[] = [{ url, depth: 0 }];
+        let links: string[] = [];
 
         try {
             const browser = await getBrowser();
-            console.log(`  [Puppeteer] Browser ready, creating page...`);
+            console.log(`  [Puppeteer] Visiting: ${url}`);
             page = await browser.newPage();
 
-            // Set viewport and user agent once
+            // Screen & UA
             await page.setViewport({ width: 1920, height: 1080 });
             await page.setUserAgent(
                 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             );
 
-            // Process queue
-            while (queue.length > 0 && images.length < limit) {
-                const current = queue.shift();
-                if (!current) break;
+            // Navigate
+            await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
 
-                // Skip if already visited
-                if (visitedPages.has(current.url)) continue;
-                visitedPages.add(current.url);
+            const domain = new URL(url).hostname.replace(/^www\./, '');
 
-                console.log(`  [Puppeteer] Visiting (Depth ${current.depth}/${crawlDepth}): ${current.url}`);
+            // Scroll for Lazy Load
+            await page.evaluate(`
+                (async () => {
+                    await new Promise((resolve) => {
+                        let totalHeight = 0;
+                        const distance = 300;
+                        const timer = setInterval(() => {
+                            const scrollHeight = document.body.scrollHeight;
+                            window.scrollBy(0, distance);
+                            totalHeight += distance;
+                            if (totalHeight >= scrollHeight || totalHeight >= 3000) {
+                                clearInterval(timer);
+                                resolve();
+                            }
+                        }, 100);
+                    });
+                })()
+            `);
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            // Extract Images
+            const isPinterest = domain.includes('pinterest');
+            const imgData = await page.$$eval('img', (imgs, isPinterestPage) => {
+                return imgs.map(img => {
+                    const rect = img.getBoundingClientRect();
+                    let parentLink: string | null = null;
+                    let parent = img.parentElement;
+
+                    for (let i = 0; i < 10 && parent; i++) {
+                        if (parent.tagName === 'A') {
+                            const href = (parent as any).href;
+                            if (isPinterestPage) {
+                                if (href.includes('/pin/')) {
+                                    parentLink = href;
+                                    break;
+                                }
+                            } else {
+                                parentLink = href;
+                                break;
+                            }
+                        }
+                        parent = parent.parentElement;
+                    }
+
+                    return {
+                        src: img.src || img.dataset?.src || '',
+                        alt: img.alt || '',
+                        width: rect.width || img.naturalWidth || 0,
+                        height: rect.height || img.naturalHeight || 0,
+                        parentLink,
+                    };
+                });
+            }, isPinterest);
+
+            // Process images
+            const skipPatterns = [
+                'logo', 'icon', 'avatar', 'sprite', 'button',
+                'tracking', 'pixel', 'spacer', 'beacon', '1x1',
+                'blank', 'placeholder', 'loading', 'spinner',
+                'arrow', 'chevron', 'caret', 'emoji', 'badge',
+                'data:image', 'svg+xml'
+            ];
+
+            const seenUrls = new Set<string>();
+
+            for (const img of imgData) {
+                let src = img.src;
+                if (!src || src.startsWith('data:') || src.includes('placeholder')) continue;
+
+                const srcLower = src.toLowerCase();
+                if (skipPatterns.some(p => srcLower.includes(p))) continue;
+                if (img.width < 150 || img.height < 150) continue;
+
+                // Pinterest cleanup
+                if (src.includes('pinimg.com/236x/')) {
+                    src = src.replace('/236x/', '/736x/');
+                }
+
+                // Twitter/X upgrade
+                if (src.includes('pbs.twimg.com/media/')) {
+                    try {
+                        if (src.includes('?')) {
+                            const twitterUrl = new URL(src);
+                            twitterUrl.searchParams.set('name', 'orig');
+                            src = twitterUrl.toString();
+                        } else {
+                            src = src.split(':')[0] + '?name=orig';
+                        }
+                    } catch (e) { }
+                }
 
                 try {
-                    const parsedUrl = new URL(current.url);
-                    const domain = parsedUrl.hostname.replace(/^www\./, '');
+                    const absoluteUrl = new URL(src, url).toString();
+                    if (seenUrls.has(absoluteUrl)) continue;
+                    seenUrls.add(absoluteUrl);
 
-                    // Navigate
-                    await page.goto(current.url, {
-                        waitUntil: 'networkidle2',
-                        timeout: 30000
+                    const isUpgraded = src !== img.src;
+
+                    let itemSourceUrl = url;
+                    if (img.parentLink) {
+                        try {
+                            itemSourceUrl = new URL(img.parentLink, url).toString();
+                        } catch {
+                            itemSourceUrl = url;
+                        }
+                    }
+
+                    images.push({
+                        url: absoluteUrl,
+                        sourceUrl: itemSourceUrl,
+                        sourceDomain: domain,
+                        alt: img.alt || undefined,
+                        width: isUpgraded ? 0 : Math.round(img.width),
+                        height: isUpgraded ? 0 : Math.round(img.height),
                     });
-
-                    // Scroll to trigger lazy loading
-                    await page.evaluate(`
-                        (async () => {
-                            await new Promise((resolve) => {
-                                let totalHeight = 0;
-                                const distance = 300;
-                                const timer = setInterval(() => {
-                                    const scrollHeight = document.body.scrollHeight;
-                                    window.scrollBy(0, distance);
-                                    totalHeight += distance;
-                                    if (totalHeight >= scrollHeight || totalHeight >= 3000) {
-                                        clearInterval(timer);
-                                        resolve();
-                                    }
-                                }, 100);
-                            });
-                        })()
-                    `);
-
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-
-                    // Extract Images
-                    const isPinterest = domain.includes('pinterest');
-                    const imgData = await page.$$eval('img', (imgs, isPinterestPage) => {
-                        return imgs.map(img => {
-                            const rect = img.getBoundingClientRect();
-                            let parentLink: string | null = null;
-                            let parent = img.parentElement;
-
-                            for (let i = 0; i < 10 && parent; i++) {
-                                if (parent.tagName === 'A') {
-                                    const href = (parent as any).href;
-                                    if (isPinterestPage) {
-                                        if (href.includes('/pin/')) {
-                                            parentLink = href;
-                                            break;
-                                        }
-                                    } else {
-                                        parentLink = href;
-                                        break;
-                                    }
-                                }
-                                parent = parent.parentElement;
-                            }
-
-                            return {
-                                src: img.src || img.dataset?.src || '',
-                                alt: img.alt || '',
-                                width: rect.width || img.naturalWidth || 0,
-                                height: rect.height || img.naturalHeight || 0,
-                                parentLink,
-                            };
-                        });
-                    }, isPinterest);
-
-                    // Process images
-                    const skipPatterns = [
-                        'logo', 'icon', 'avatar', 'sprite', 'button',
-                        'tracking', 'pixel', 'spacer', 'beacon', '1x1',
-                        'blank', 'placeholder', 'loading', 'spinner',
-                        'arrow', 'chevron', 'caret', 'emoji', 'badge',
-                        'data:image', 'svg+xml'
-                    ];
-
-                    for (const img of imgData) {
-                        if (images.length >= limit) break;
-
-                        let src = img.src;
-                        if (!src || src.startsWith('data:') || src.includes('placeholder')) continue;
-
-                        const srcLower = src.toLowerCase();
-                        if (skipPatterns.some(p => srcLower.includes(p))) continue;
-                        if (img.width < 150 || img.height < 150) continue;
-
-                        if (src.includes('pinimg.com/236x/')) {
-                            src = src.replace('/236x/', '/736x/');
-                        }
-
-                        // SPECIAL HANDLING: Upgrade Twitter/X URLs to high-res
-                        if (src.includes('pbs.twimg.com/media/')) {
-                            try {
-                                if (src.includes('?')) {
-                                    const twitterUrl = new URL(src);
-                                    twitterUrl.searchParams.set('name', 'orig');
-                                    src = twitterUrl.toString();
-                                } else {
-                                    // Handle :small or append if missing
-                                    src = src.split(':')[0] + '?name=orig';
-                                }
-                            } catch (e) {
-                                // Fallback
-                            }
-                        }
-
-                        const absoluteUrl = new URL(src, current.url).toString();
-                        if (seenUrls.has(absoluteUrl)) continue;
-                        seenUrls.add(absoluteUrl);
-
-                        const isUpgraded = src !== img.src;
-
-                        let itemSourceUrl = current.url;
-                        if (img.parentLink) {
-                            try {
-                                itemSourceUrl = new URL(img.parentLink, current.url).toString();
-                            } catch {
-                                itemSourceUrl = current.url;
-                            }
-                        }
-
-                        images.push({
-                            url: absoluteUrl,
-                            sourceUrl: itemSourceUrl,
-                            sourceDomain: domain,
-                            alt: img.alt || undefined,
-                            width: isUpgraded ? 0 : Math.round(img.width),
-                            height: isUpgraded ? 0 : Math.round(img.height),
-                        });
-                    }
-
-                    // Extract Links for next depth
-                    if (current.depth < crawlDepth) {
-                        const links = await page.$$eval('a', (anchors) => anchors.map(a => a.href));
-                        const uniqueLinks = new Set(links.filter(l => l && l.startsWith('http')));
-
-                        console.log(`  [Puppeteer] Found ${uniqueLinks.size} links to potentially crawl`);
-
-                        for (const link of uniqueLinks) {
-                            // Basic filtering (same domain only? or followLinks?)
-                            // If followLinks is true, allow any domain. Else, restrict to same domain.
-                            try {
-                                const linkUrl = new URL(link);
-                                const currentUrlObj = new URL(current.url);
-
-                                if (followLinks || linkUrl.hostname === currentUrlObj.hostname) {
-                                    if (!visitedPages.has(link) && !queue.some(q => q.url === link)) {
-                                        queue.push({ url: link, depth: current.depth + 1 });
-                                    }
-                                }
-                            } catch (e) {
-                                // invalid url, skip
-                            }
-                        }
-                    }
-
-                } catch (pageError) {
-                    console.error(`  [Puppeteer] Error processing ${current.url}:`, pageError);
+                } catch (e) {
+                    // Invalid URL
                 }
             }
 
-            console.log(`  [Puppeteer] Crawl finished. Found ${images.length} images from ${visitedPages.size} pages`);
-            return images;
+            // Extract Links
+            const rawLinks = await page.$$eval('a', (anchors) => anchors.map(a => a.href));
+            links = Array.from(new Set(rawLinks.filter(l => l && l.startsWith('http'))));
+
+            return { images, links };
 
         } catch (error) {
-            console.error('Puppeteer scrape failed:', error);
-            return images; // Return what we have so far
+            console.error(`  [Puppeteer] Error visiting ${url}:`, error);
+            return { images: [], links: [] };
         } finally {
             if (page) {
                 await page.close().catch(() => { });

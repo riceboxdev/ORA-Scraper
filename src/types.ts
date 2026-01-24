@@ -14,6 +14,18 @@ export interface Source {
     followLinks?: boolean;   // Whether to follow links to other pages
 }
 
+export interface CrawlQueueItem {
+    id?: number; // Auto-increment in SQLite
+    url: string;
+    sourceId: string;
+    depth: number;
+    status: 'pending' | 'processing' | 'completed' | 'failed';
+    priority: number;
+    discoveredAt: string;
+    lastAttemptedAt: string | null;
+    error: string | null;
+}
+
 export interface ScrapedImage {
     url: string;
     sourceUrl: string;

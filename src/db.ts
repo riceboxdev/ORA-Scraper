@@ -5,6 +5,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import type { CrawlQueueItem } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, '..', 'data', 'sources.db');
@@ -84,6 +85,20 @@ db.exec(`
         qualityFiltered INTEGER DEFAULT 0,
         errorMessage TEXT
     );
+
+    -- Crawl Queue (Persistent Frontier)
+    CREATE TABLE IF NOT EXISTS crawl_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL UNIQUE,
+        sourceId TEXT NOT NULL,
+        depth INTEGER DEFAULT 0,
+        priority INTEGER DEFAULT 0,
+        status TEXT CHECK(status IN ('pending', 'processing', 'completed', 'failed')) DEFAULT 'pending',
+        discoveredAt TEXT DEFAULT (datetime('now')),
+        lastAttemptedAt TEXT,
+        error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_queue_status_priority ON crawl_queue(status, priority DESC);
 `);
 
 // Initialize default settings
@@ -108,6 +123,23 @@ export const queries: Record<string, Database.Statement> = {
     // Stats
     getTodayStats: db.prepare(`
         SELECT * FROM daily_stats WHERE date = date('now')
+    `),
+
+    // Crawl Queue
+    insertCrawlItem: db.prepare(`
+        INSERT OR IGNORE INTO crawl_queue (url, sourceId, depth, priority, status, discoveredAt)
+        VALUES (@url, @sourceId, @depth, @priority, 'pending', datetime('now'))
+    `),
+    getNextBatch: db.prepare(`
+        SELECT * FROM crawl_queue 
+        WHERE status = 'pending' 
+        ORDER BY priority DESC, discoveredAt ASC 
+        LIMIT ?
+    `),
+    updateCrawlStatus: db.prepare(`
+        UPDATE crawl_queue 
+        SET status = ?, error = ?, lastAttemptedAt = datetime('now') 
+        WHERE id = ?
     `),
 };
 
@@ -192,6 +224,54 @@ export function getImageFailureInfo(imageUrl: string): { failCount: number; reas
     ).get(imageUrl) as { failCount: number; lastFailReason: string } | undefined;
 
     return row ? { failCount: row.failCount, reason: row.lastFailReason } : null;
+}
+
+// ============================================
+// CRAWL QUEUE HELPERS
+// ============================================
+
+export function addToCrawlQueue(items: Omit<CrawlQueueItem, 'id' | 'status' | 'discoveredAt' | 'lastAttemptedAt' | 'error'>[]): void {
+    const insert = queries.insertCrawlItem;
+    const insertMany = db.transaction((items) => {
+        for (const item of items) insert.run(item);
+    });
+    insertMany(items);
+}
+
+export function getNextCrawlBatch(limit: number): CrawlQueueItem[] {
+    // Transaction to get items and immediately mark them as processing to prevent race conditions
+    // strictly speaking with SQLite in WAL mode and single process, this simpler approach is fine,
+    // but explicit transaction is safer if we ever scale processes.
+
+    // However, `better-sqlite3` is synchronous. We can just fetch and then update ids.
+    const items = queries.getNextBatch.all(limit) as CrawlQueueItem[];
+
+    if (items.length > 0) {
+        const markProcessing = db.prepare(`UPDATE crawl_queue SET status = 'processing', lastAttemptedAt = datetime('now') WHERE id = ?`);
+        const updateMany = db.transaction((items: CrawlQueueItem[]) => {
+            for (const item of items) {
+                markProcessing.run(item.id);
+            }
+        });
+        updateMany(items);
+    }
+
+    return items;
+}
+
+export function updateCrawlStatus(id: number, status: 'completed' | 'failed' | 'processing', error: string | null = null): void {
+    queries.updateCrawlStatus.run(status, error, id);
+}
+
+export function getQueueStats(): { pending: number; processing: number; completed: number; failed: number } {
+    const rows = db.prepare('SELECT status, COUNT(*) as count FROM crawl_queue GROUP BY status').all() as { status: string; count: number }[];
+    const stats = { pending: 0, processing: 0, completed: 0, failed: 0 };
+    for (const row of rows) {
+        if (Object.prototype.hasOwnProperty.call(stats, row.status)) {
+            stats[row.status as keyof typeof stats] = row.count;
+        }
+    }
+    return stats;
 }
 
 export { db };
