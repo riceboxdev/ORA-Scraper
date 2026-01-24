@@ -141,6 +141,11 @@ export const queries: Record<string, Database.Statement> = {
         SET status = ?, error = ?, lastAttemptedAt = datetime('now') 
         WHERE id = ?
     `),
+    getStatsHistory: db.prepare(`
+        SELECT * FROM daily_stats 
+        WHERE date >= date('now', ?) 
+        ORDER BY date ASC
+    `),
 };
 
 // Helper functions
@@ -175,6 +180,25 @@ export function incrementDailyStat(stat: 'imagesScraped' | 'imagesUploaded' | 'i
         VALUES (date('now'), 1)
         ON CONFLICT(date) DO UPDATE SET ${stat} = ${stat} + 1
     `).run();
+    `).run();
+}
+
+export function getTodayStats(): any {
+    const stats = queries.getTodayStats.get();
+    return stats || {
+        date: new Date().toISOString().split('T')[0],
+        imagesScraped: 0,
+        imagesUploaded: 0,
+        imagesFailed: 0,
+        qualityFiltered: 0
+    };
+}
+
+export function getStatsHistory(days: number): any[] {
+    const rows = queries.getStatsHistory.all(`- ${ days } days`);
+    // Ideally we would fill in missing dates here, but for now raw rows are okay
+    // The frontend chart might look gap-py if days are missing
+    return rows;
 }
 
 const MAX_FAILURES = 3;
@@ -201,15 +225,15 @@ export function recordImageFailure(imageUrl: string, reason: string): number {
     if (existing) {
         db.prepare(`
             UPDATE failed_images 
-            SET failCount = failCount + 1, 
-                lastFailReason = ?, 
-                lastFailedAt = datetime('now')
+            SET failCount = failCount + 1,
+        lastFailReason = ?,
+        lastFailedAt = datetime('now')
             WHERE imageUrl = ?
         `).run(reason, imageUrl);
         return existing.failCount + 1;
     } else {
         db.prepare(`
-            INSERT INTO failed_images (imageUrl, lastFailReason) VALUES (?, ?)
+            INSERT INTO failed_images(imageUrl, lastFailReason) VALUES(?, ?)
         `).run(imageUrl, reason);
         return 1;
     }
@@ -243,11 +267,11 @@ export function getNextCrawlBatch(limit: number): CrawlQueueItem[] {
     // strictly speaking with SQLite in WAL mode and single process, this simpler approach is fine,
     // but explicit transaction is safer if we ever scale processes.
 
-    // However, `better-sqlite3` is synchronous. We can just fetch and then update ids.
+    // However, `better - sqlite3` is synchronous. We can just fetch and then update ids.
     const items = queries.getNextBatch.all(limit) as CrawlQueueItem[];
 
     if (items.length > 0) {
-        const markProcessing = db.prepare(`UPDATE crawl_queue SET status = 'processing', lastAttemptedAt = datetime('now') WHERE id = ?`);
+        const markProcessing = db.prepare(`UPDATE crawl_queue SET status = 'processing', lastAttemptedAt = datetime('now') WHERE id = ? `);
         const updateMany = db.transaction((items: CrawlQueueItem[]) => {
             for (const item of items) {
                 markProcessing.run(item.id);

@@ -5,6 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import * as firestoreDb from '../firestore-db.js';
+import * as localDb from '../db.js';
 
 const router = Router();
 
@@ -60,7 +61,7 @@ router.get('/status', async (_req: Request, res: Response) => {
 // Get today's stats
 router.get('/stats', async (_req: Request, res: Response) => {
     try {
-        const stats = await firestoreDb.getTodayStats();
+        const stats = localDb.getTodayStats();
         res.json(stats);
     } catch (error) {
         console.error('Error fetching stats:', error);
@@ -72,7 +73,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
 router.get('/stats/history', async (req: Request, res: Response) => {
     try {
         const days = parseInt(req.query.days as string) || 7;
-        const stats = await firestoreDb.getStatsHistory(days);
+        const stats = localDb.getStatsHistory(days);
         res.json(stats);
     } catch (error) {
         console.error('Error fetching stats history:', error);
