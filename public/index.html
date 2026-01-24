@@ -126,12 +126,12 @@
             <div class="sidebar-footer">
                 <div class="sidebar-user" id="sidebarUser">
                     <span class="user-email" id="userEmail"></span>
+                    <button class="btn btn-sm btn-ghost" onclick="toggleTheme()" title="Toggle Theme">
+                        <i id="themeIcon" class="ph ph-moon"></i>
+                    </button>
                     <button class="btn btn-sm btn-ghost" onclick="handleLogout()">Logout</button>
                 </div>
-                <div class="sidebar-status">
-                    <span class="status-dot" id="sidebarStatusDot"></span>
-                    <span id="sidebarStatusText">Loading...</span>
-                </div>
+                <!-- Status dot moved inside status call if needed, or kept separate -->
             </div>
         </aside>
 

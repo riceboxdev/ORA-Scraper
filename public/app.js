@@ -112,6 +112,7 @@ function initAuth() {
                     showApp();
                     document.getElementById('userEmail').textContent = user.email;
                     initRouter();
+                    initTheme();
                     updateDashboardStatus();
 
                     // Refresh token periodically
@@ -184,6 +185,30 @@ async function handleLogout() {
     } catch (error) {
         console.error('Logout error:', error);
         showToast('Failed to sign out', 'error');
+    }
+}
+
+// Theme Handling
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-mode');
+        document.getElementById('themeIcon').classList.replace('ph-moon', 'ph-sun');
+    }
+}
+
+function toggleTheme() {
+    const body = document.body;
+    body.classList.toggle('light-mode');
+
+    const isLight = body.classList.contains('light-mode');
+    localStorage.setItem('theme', isLight ? 'light' : 'dark');
+
+    const icon = document.getElementById('themeIcon');
+    if (isLight) {
+        icon.classList.replace('ph-moon', 'ph-sun');
+    } else {
+        icon.classList.replace('ph-sun', 'ph-moon');
     }
 }
 
