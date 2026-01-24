@@ -11,7 +11,8 @@ import {
     markImageAsScraped,
     isImagePermanentlyFailed,
     recordImageFailure,
-    incrementDailyStat
+    incrementDailyStat,
+    getQueueStats
 } from '../db.js';
 import * as firestoreDb from '../firestore-db.js';
 import { PuppeteerScraper } from '../scrapers/puppeteer.js';
@@ -38,8 +39,14 @@ export async function processCrawlQueue(batchSize: number = 5): Promise<void> {
     const items = getNextCrawlBatch(batchSize);
 
     if (items.length === 0) {
-        console.log('Crawler: Queue is empty.');
-        return;
+        // Queue is empty, try to seed from configured sources
+        const seeded = await seedQueueFromSources();
+        if (!seeded) {
+            console.log('Crawler: Queue is empty and no active sources found to seed.');
+            return;
+        }
+        // If we seeded, try to fetch again
+        return processCrawlQueue(batchSize);
     }
 
     console.log(`Crawler: Picked up ${items.length} items`);
@@ -144,5 +151,36 @@ async function processQueueItem(item: CrawlQueueItem): Promise<void> {
     } catch (error: any) {
         console.error(`Crawler: Failed to process ${item.url}:`, error);
         updateCrawlStatus(item.id!, 'failed', String(error));
+    }
+}
+/**
+ * Seeding Logic:
+ * If the queue is empty, fetch enabled sources from Firestore and add them to the queue
+ */
+async function seedQueueFromSources(): Promise<boolean> {
+    try {
+        // Double check queue is actually empty to avoid race conditions (simple check)
+        const stats = getQueueStats();
+        if (stats.pending > 0 || stats.processing > 0) return false;
+
+        const sources = await firestoreDb.getSources();
+        const enabledSources = sources.filter(s => s.enabled);
+
+        if (enabledSources.length === 0) return false;
+
+        console.log(`Crawler: Seeding queue with ${enabledSources.length} sources...`);
+
+        const newItems: CrawlQueueItem[] = enabledSources.map(source => ({
+            url: source.query, // Using query as the starting URL for now
+            sourceId: source.id,
+            depth: 0,
+            priority: PRIORITY_HIGH
+        }));
+
+        addToCrawlQueue(newItems);
+        return true;
+    } catch (error) {
+        console.error('Crawler: Failed to seed queue:', error);
+        return false;
     }
 }
