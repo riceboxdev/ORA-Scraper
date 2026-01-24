@@ -22,9 +22,12 @@ import { processCrawlQueue } from './services/crawler.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
+const PUBLIC_PATH = path.join(process.cwd(), 'public');
+console.log('Serving static files from:', PUBLIC_PATH);
+
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(PUBLIC_PATH));
 
 // Health check (public)
 app.get('/health', (_req, res) => {
@@ -50,7 +53,12 @@ app.use('/api/cms', requireAdminAuth, cmsRouter);
 
 // Fallback to index.html for SPA
 app.get('*', (_req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+    res.sendFile(path.join(PUBLIC_PATH, 'index.html'), (err) => {
+        if (err) {
+            console.error('Failed to send index.html:', err);
+            res.status(500).send('Error loading frontend');
+        }
+    });
 });
 
 // Scheduled job
