@@ -1,5 +1,5 @@
 # Stage 1: Builder
-FROM node:20-slim AS builder
+FROM node:20-bookworm AS builder
 
 WORKDIR /app
 
@@ -13,10 +13,14 @@ COPY . .
 # Build the application
 RUN npm run build
 
+# Prune dev dependencies so we only copy production deps
+RUN npm prune --production
+
 # Stage 2: Production
-FROM node:20-slim
+FROM node:20-bookworm-slim
 
 # Install Puppeteer dependencies
+# Note: "bookworm" tag ensures compatibility with the builder stage libraries
 RUN apt-get update && apt-get install -y \
     chromium \
     fonts-liberation \
@@ -44,13 +48,11 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
-# Install only production dependencies
-COPY package*.json ./
-RUN npm ci --only=production
-
-# Copy built artifacts from builder stage (including public assets)
-COPY --from=builder /app/dist ./dist
+# Copy built artifacts and dependencies from builder
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/dist ./dist
 
 # Create data directory
 RUN mkdir -p /app/data
