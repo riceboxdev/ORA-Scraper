@@ -170,7 +170,7 @@ async function seedQueueFromSources(): Promise<boolean> {
 
         console.log(`Crawler: Seeding queue with ${enabledSources.length} sources...`);
 
-        const newItems: CrawlQueueItem[] = enabledSources.map(source => ({
+        const newItems = enabledSources.map(source => ({
             url: source.query, // Using query as the starting URL for now
             sourceId: source.id,
             depth: 0,
