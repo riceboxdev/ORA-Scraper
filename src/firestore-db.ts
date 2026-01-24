@@ -24,7 +24,7 @@ export interface ScraperConfig extends ScheduleConfig {
 }
 
 const DEFAULT_CONFIG: ScraperConfig = {
-    batchSize: 30,
+    batchSize: 5,
     intervalHours: 4,
     enabled: true,
     lastRunAt: null,

@@ -44,9 +44,11 @@ export async function processCrawlQueue(batchSize: number = 5): Promise<void> {
 
     console.log(`Crawler: Picked up ${items.length} items`);
 
-    // Process in parallel (or sequential if resources are tight)
-    // Using Promise.allSettled to ensure all items are handled
-    await Promise.allSettled(items.map(item => processQueueItem(item)));
+    // Process SEQUENTIALLY to save resources (RAM/CPU)
+    // Running 30 Chrome instances in parallel will crash a standard VPS
+    for (const item of items) {
+        await processQueueItem(item);
+    }
 }
 
 async function processQueueItem(item: CrawlQueueItem): Promise<void> {
