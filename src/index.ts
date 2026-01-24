@@ -128,6 +128,18 @@ async function start(): Promise<void> {
         // Start scheduler
         await updateSchedule();
 
+        // Schedule daily discovery job (3 AM)
+        cron.schedule('0 3 * * *', async () => {
+            console.log('[System] Running daily topic discovery...');
+            try {
+                // Dynamic import to avoid circular dep issues if any, though here it is fine
+                const { discoveryService } = await import('./services/discovery.js');
+                await discoveryService.runDiscoveryJob(500);
+            } catch (e) {
+                console.error('[System] Daily discovery failed:', e);
+            }
+        });
+
         // Start Express
         app.listen(config.port, () => {
             console.log(`ORA Scraper running at http://localhost:${config.port}`);

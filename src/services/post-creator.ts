@@ -16,6 +16,13 @@ interface CreatePostParams {
     sourceDomain: string;
     tags: string[];
     description?: string;
+    externalId?: string;
+    originalCreatedAt?: string; // ISO string preferred for transport
+    attribution?: {
+        name?: string;
+        url?: string;
+        username?: string;
+    };
 }
 
 const BLACKLISTED_TAGS = [
@@ -34,12 +41,11 @@ const BLACKLISTED_TAGS = [
     'royalty',
     'copyright'
 ];
-
-/**
- * Create a post document in Firestore
- */
 export async function createPost(params: CreatePostParams): Promise<string> {
-    const { heifUrl, jpegUrl, width, height, sourceUrl, sourceDomain, tags, description } = params;
+    const {
+        heifUrl, jpegUrl, width, height, sourceUrl, sourceDomain, tags, description,
+        externalId, originalCreatedAt, attribution
+    } = params;
 
     // Generate post ID
     const postRef = db.collection('userPosts').doc();
@@ -64,6 +70,9 @@ export async function createPost(params: CreatePostParams): Promise<string> {
         processingStatus: 'pending',
         moderationStatus: 'approved', // Auto-approve scraped content per requirements
         isSystemCurated: true,
+        externalId,
+        originalCreatedAt,
+        attribution,
     };
 
     await postRef.set(postData);

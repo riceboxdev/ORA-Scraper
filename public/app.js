@@ -2461,25 +2461,25 @@ async function deleteCmsBoard(id) {
 async function renderIdeasPage(container) {
     container.innerHTML = `
         <div class="page-header">
-            <h1 class="page-title">Ideas (Categories)</h1>
+            <h1 class="page-title">Topics (Niches)</h1>
             <div class="page-actions">
-                <button class="btn btn-primary" onclick="openAddIdeaModal()">+ Add Idea</button>
+                <button class="btn btn-primary" onclick="openAddIdeaModal()">+ Add Topic</button>
             </div>
         </div>
 
         <div class="tabs mb-6 border-b border-white/10 flex gap-6">
             <button class="tab active" id="tab-active" onclick="switchIdeaTab('active')">
-                Active Ideas
+                Active Niches
             </button>
             <button class="tab" id="tab-suggestions" onclick="switchIdeaTab('suggestions')">
-                Suggestions <span id="suggestionCount" class="badge badge-secondary ml-1" style="font-size: 10px; opacity: 0;">0</span>
+                Emerging / Discovered <span id="suggestionCount" class="badge badge-secondary ml-1" style="font-size: 10px; opacity: 0;">0</span>
             </button>
         </div>
 
         <!-- Active Ideas View -->
         <div id="activeIdeasView">
             <div id="ideasGrid" class="ideas-grid">
-                <div class="col-span-full text-center text-muted">Loading ideas...</div>
+                <div class="col-span-full text-center text-muted">Loading topics...</div>
             </div>
         </div>
 
@@ -2487,11 +2487,15 @@ async function renderIdeasPage(container) {
         <div id="suggestionsView" style="display: none;">
             <div class="flex justify-end mb-4" style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
                 <button id="btn-generate-suggestions" class="btn btn-secondary btn-sm" onclick="generateSuggestions()">
-                    ✨ Generate New Suggestions
+                    ✨ Run Topic Discovery
                 </button>
             </div>
+            <div class="alert alert-info mb-4" style="font-size: 13px;">
+                <i class="ph ph-info"></i>
+                The system automatically creates "Emerging" topics when it finds high-confidence clusters (>85%). Review and promote them here.
+            </div>
             <div id="suggestionsList" class="flex flex-col gap-4">
-                <div class="text-center text-muted">Loading suggestions...</div>
+                <div class="text-center text-muted">Loading emerging topics...</div>
             </div>
         </div>
     `;
@@ -2527,12 +2531,12 @@ async function loadCmsIdeas() {
     if (!grid) return;
 
     try {
-        const data = await api('/api/cms/ideas');
+        const data = await api('/api/cms/ideas?status=active');
         state.cmsIdeas = data.ideas;
         renderIdeasGrid();
     } catch (e) {
         console.error('Failed to load ideas:', e);
-        grid.innerHTML = '<div class="col-span-full text-center text-danger">Failed to load ideas</div>';
+        grid.innerHTML = '<div class="col-span-full text-center text-danger">Failed to load topics</div>';
     }
 }
 
@@ -2541,8 +2545,9 @@ async function loadCmsSuggestions() {
     const badge = document.getElementById('suggestionCount');
 
     try {
-        const data = await api('/api/cms/ideas/suggestions');
-        state.cmsSuggestions = data.suggestions;
+        // Fetch emerging topics instead of suggestions
+        const data = await api('/api/cms/ideas?status=emerging');
+        state.cmsSuggestions = data.ideas; // Using same state var for now, acts as emerging
 
         if (badge) {
             badge.textContent = state.cmsSuggestions.length;
@@ -2551,8 +2556,8 @@ async function loadCmsSuggestions() {
 
         if (list) renderSuggestionsList();
     } catch (e) {
-        console.error('Failed to load suggestions:', e);
-        if (list) list.innerHTML = '<div class="text-center text-danger">Failed to load suggestions</div>';
+        console.error('Failed to load emerging topics:', e);
+        if (list) list.innerHTML = '<div class="text-center text-danger">Failed to load emerging topics</div>';
     }
 }
 
@@ -2561,7 +2566,7 @@ function renderIdeasGrid() {
     if (!grid) return;
 
     if (state.cmsIdeas.length === 0) {
-        grid.innerHTML = '<div class="col-span-full text-center text-muted">No ideas found. Create one!</div>';
+        grid.innerHTML = '<div class="col-span-full text-center text-muted">No active topics found. Create one or promote an emerging one!</div>';
         return;
     }
 
@@ -2589,8 +2594,8 @@ function renderSuggestionsList() {
         list.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">✨</div>
-                <div class="empty-state-title">No new suggestions</div>
-                <div class="empty-state-description">The periodic discovery job will add new ideas here.</div>
+                <div class="empty-state-title">No emerging topics</div>
+                <div class="empty-state-description">Run a discovery job to find new clusters.</div>
             </div>
         `;
         return;
@@ -2623,20 +2628,20 @@ function renderSuggestionsList() {
                             <p class="text-muted mt-1" style="font-size: 0.875rem; margin-top: 0.25rem; line-height: 1.4; color: #a1a1aa;">${escapeHtml(s.description)}</p>
                         </div>
                         <div class="flex gap-2" style="display: flex; gap: 0.5rem; flex-shrink: 0;">
-                            <button class="btn btn-sm btn-secondary" onclick="rejectSuggestion('${s.id}')">Start Over</button>
-                            <button class="btn btn-sm btn-primary" onclick="approveSuggestion('${s.id}')">Approve Idea</button>
+                            <button class="btn btn-sm btn-secondary" onclick="archiveTopic('${s.id}')">Archive</button>
+                            <button class="btn btn-sm btn-primary" onclick="promoteTopic('${s.id}')">Promote to Active</button>
                         </div>
                     </div>
 
                     <div class="flex gap-4 text-xs mt-3 p-3 rounded-lg border" style="display: flex; gap: 1rem; margin-top: 0.75rem; padding: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 0.5rem; font-size: 0.75rem;">
                         <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
                             <span class="text-muted" style="color: #71717a;">Color:</span>
-                            <span style="width: 1rem; height: 1rem; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.2); background: ${s.suggestedColor}"></span>
-                            <code style="font-family: monospace;">${s.suggestedColor}</code>
+                            <span style="width: 1rem; height: 1rem; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.2); background: ${s.color || s.suggestedColor}"></span>
+                            <code style="font-family: monospace;">${s.color || s.suggestedColor}</code>
                         </div>
                         <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
                             <span class="text-muted" style="color: #71717a;">Icon:</span>
-                            <code style="font-family: monospace;">${s.suggestedIcon}</code>
+                            <code style="font-family: monospace;">${s.iconName || s.suggestedIcon}</code>
                         </div>
                         <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
                             <span class="text-muted" style="color: #71717a;">Tags:</span>
@@ -2666,7 +2671,7 @@ async function generateSuggestions() {
             method: 'POST',
             body: JSON.stringify({ sampleSize: 300 })
         });
-        showToast('Analysis complete! Refreshing suggestions...', 'success');
+        showToast('Discovery job complete! Refreshing emerging topics...', 'success');
 
         // Wait a moment for firestore to sync
         setTimeout(() => {
@@ -2683,7 +2688,7 @@ async function generateSuggestions() {
     }
 }
 
-async function approveSuggestion(id) {
+async function promoteTopic(id) {
     const card = document.getElementById(`suggestion-${id}`);
     const btn = card?.querySelector('.btn-primary');
     if (btn) {
@@ -2692,8 +2697,8 @@ async function approveSuggestion(id) {
     }
 
     try {
-        await api(`/api/cms/ideas/suggestions/${id}/approve`, { method: 'POST' });
-        showToast('Idea approved and created!', 'success');
+        await api(`/api/cms/topics/${id}/promote`, { method: 'POST' });
+        showToast('Topic promoted to Active!', 'success');
 
         // Remove locally
         if (card) {
@@ -2707,23 +2712,23 @@ async function approveSuggestion(id) {
         loadCmsIdeas(); // Reload active ideas
 
     } catch (e) {
-        console.error('Failed to approve suggestion:', e);
-        showToast('Failed to approve suggestion', 'error');
+        console.error('Failed to promote topic:', e);
+        showToast('Failed to promote topic', 'error');
         if (btn) {
-            btn.textContent = 'Approve Idea';
+            btn.textContent = 'Promote to Active';
             btn.disabled = false;
         }
     }
 }
 
-async function rejectSuggestion(id) {
-    if (!confirm('Reject this suggestion? It will not be shown again.')) return;
+async function archiveTopic(id) {
+    if (!confirm('Archive this topic? It will be hidden.')) return;
 
     const card = document.getElementById(`suggestion-${id}`);
 
     try {
-        await api(`/api/cms/ideas/suggestions/${id}/reject`, { method: 'POST' });
-        showToast('Suggestion rejected', 'info');
+        await api(`/api/cms/topics/${id}/archive`, { method: 'POST' });
+        showToast('Topic archived', 'info');
 
         // Remove locally
         if (card) {
@@ -2769,7 +2774,7 @@ async function viewIdeaDetails(id) {
     if (!idea) return;
 
     state.editingIdeaId = id;
-    document.getElementById('ideaModalTitle').textContent = 'Edit Idea';
+    document.getElementById('ideaModalTitle').textContent = 'Edit Topic';
     document.getElementById('ideaName').value = idea.name;
     document.getElementById('ideaSlug').value = idea.slug;
     document.getElementById('ideaDescription').value = idea.description || '';

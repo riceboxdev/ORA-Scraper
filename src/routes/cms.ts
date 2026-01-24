@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { db } from '../firebase.js';
 import { config } from '../config.js';
 import admin from 'firebase-admin';
+import { discoveryService } from '../services/discovery.js';
 
 const router = Router();
 
@@ -657,34 +658,51 @@ router.delete('/boards/:id', async (req: Request, res: Response) => {
  */
 router.post('/ideas/generate', async (req: Request, res: Response) => {
     try {
-        console.log(`Triggering idea generation via worker: ${config.workerUrl}/discover`);
-
-        // Call the worker
-        const workerResponse = await fetch(`${config.workerUrl}/discover`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                // Add secret header if needed in future
-            },
-            body: JSON.stringify({
-                sampleSize: req.body.sampleSize || 200
-            })
-        });
-
-        if (!workerResponse.ok) {
-            const text = await workerResponse.text();
-            throw new Error(`Worker responded with ${workerResponse.status}: ${text}`);
-        }
-
-        const data = await workerResponse.json();
-        res.json(data);
-
+        const { sampleSize } = req.body;
+        const result = await discoveryService.runDiscoveryJob(sampleSize || 300);
+        res.json(result);
     } catch (error: any) {
-        console.error('Error triggering idea generation:', error);
+        console.error('Error generating ideas:', error);
         res.status(500).json({
             error: 'Failed to generate ideas',
             details: error.message
         });
+    }
+});
+
+/**
+ * POST /api/cms/topics/:id/promote - Promote emerging topic to active
+ */
+router.post('/topics/:id/promote', async (req: Request, res: Response) => {
+    try {
+        const topicId = req.params.id;
+        await db.collection('categories').doc(topicId).update({
+            status: 'active',
+            promotedAt: admin.firestore.FieldValue.serverTimestamp(),
+            promotedBy: req.user?.uid
+        });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error promoting topic:', error);
+        res.status(500).json({ error: 'Failed to promote topic' });
+    }
+});
+
+/**
+ * POST /api/cms/topics/:id/archive - Archive a topic
+ */
+router.post('/topics/:id/archive', async (req: Request, res: Response) => {
+    try {
+        const topicId = req.params.id;
+        await db.collection('categories').doc(topicId).update({
+            status: 'archived',
+            archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+            archivedBy: req.user?.uid
+        });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error archiving topic:', error);
+        res.status(500).json({ error: 'Failed to archive topic' });
     }
 });
 
@@ -791,9 +809,15 @@ router.post('/ideas/suggestions/:id/reject', async (req: Request, res: Response)
  */
 router.get('/ideas', async (req: Request, res: Response) => {
     try {
-        const snapshot = await db.collection('categories')
-            .orderBy('postCount', 'desc')
-            .get();
+        const status = req.query.status as string;
+
+        let query: admin.firestore.Query = db.collection('categories');
+
+        if (status) {
+            query = query.where('status', '==', status);
+        }
+
+        const snapshot = await query.orderBy('postCount', 'desc').get();
 
         const ideas = snapshot.docs.map(doc => ({
             id: doc.id,

@@ -62,6 +62,13 @@ export interface PostData {
     processingStatus: 'pending';
     moderationStatus: 'pending' | 'approved' | 'flagged' | 'rejected'; // Added for moderation
     isSystemCurated: boolean;
+    externalId?: string; // ID from the original source (e.g. Instagram ID)
+    originalCreatedAt?: FirebaseFirestore.Timestamp | string; // Creation time at source
+    attribution?: {
+        name?: string;
+        url?: string;
+        username?: string;
+    };
 }
 
 export interface DailyStats {
@@ -82,4 +89,37 @@ export interface ScrapeResult {
     sourceId: string; // Changed from number
     images: ScrapedImage[];
     errors: string[];
+}
+
+export interface Category {
+    id: string;
+    name: string;
+    slug: string;
+    description?: string;
+    color?: string;
+    iconName?: string;
+    postCount: number;
+    thumbnailUrls?: string[];
+    createdAt: string;
+
+    // New fields for self-maintaining system
+    status: 'active' | 'emerging' | 'archived';
+    confidence: number; // 0-1
+    isSystemGenerated: boolean;
+    lastRefreshedAt?: string;
+    keywords?: string[];
+    source?: string;
+    originalSuggestionId?: string;
+}
+
+export interface DiscoveryRun {
+    id: string;
+    startedAt: string;
+    completedAt: string | null;
+    status: 'running' | 'completed' | 'failed';
+    topicsFound: number;
+    topicsCreated: number;
+    topicsUpdated: number;
+    sampleSize: number;
+    error?: string;
 }
