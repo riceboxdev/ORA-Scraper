@@ -33,6 +33,8 @@ appCheck.activate(
     true // isTokenAutoRefreshEnabled
 );
 
+console.log("%c[App Check] Debug mode enabled. Look for the token above or below.", "color: yellow; font-weight: bold; font-size: 14px;");
+
 // Auth state
 let currentUser = null;
 let authToken = null;
