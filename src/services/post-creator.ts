@@ -96,12 +96,6 @@ export function generateTags(
         tags.push(...analysis.suggestedTags);
     }
 
-    // Add source domain as a tag
-    const cleanDomain = sourceDomain.replace(/\.(com|org|net|io)$/, '');
-    if (cleanDomain && !tags.includes(cleanDomain)) {
-        tags.push(cleanDomain);
-    }
-
     // Extract keywords from alt text
     if (alt && alt.length > 5) {
         const keywords = alt
