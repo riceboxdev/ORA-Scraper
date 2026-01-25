@@ -132,7 +132,7 @@ export const discoveryService = {
                         .findNearest('embedding', vectorValue, queryOptions)
                         .get();
 
-                    const neighbors = neighborsSnaps.docs.map(d => ({
+                    const neighbors = neighborsSnaps.docs.map((d: any) => ({
                         id: d.id,
                         ...d.data()
                     })) as any[];
@@ -207,7 +207,7 @@ export const discoveryService = {
                         // 6. Tag Posts
                         if (topicId) {
                             const batch = db.batch();
-                            neighborsSnaps.docs.forEach(doc => {
+                            neighborsSnaps.docs.forEach((doc: any) => {
                                 batch.update(doc.ref, { topicId });
                             });
                             await batch.commit();

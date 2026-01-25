@@ -47,15 +47,15 @@ export const embeddingService = {
             return null;
         }
 
-        const instances = [helpers.toValue(instance)];
-        const parameters = helpers.toValue({});
+        const instances = [helpers.toValue(instance) as any];
+        const parameters = helpers.toValue({}) as any;
 
         try {
-            const [response] = await client.predict({
+            const [response] = (await client.predict({
                 endpoint,
                 instances,
                 parameters,
-            });
+            })) as any;
 
             if (!response.predictions || response.predictions.length === 0) {
                 return null;
