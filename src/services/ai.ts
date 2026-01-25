@@ -21,7 +21,7 @@ const vertex_ai = new VertexAI({
 });
 
 const model = vertex_ai.getGenerativeModel({
-    model: 'gemini-1.5-flash',
+    model: 'gemini-1.5-flash-002',
     generationConfig: {
         responseMimeType: 'application/json',
     }
