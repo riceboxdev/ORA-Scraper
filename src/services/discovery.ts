@@ -56,7 +56,21 @@ export const discoveryService = {
 
             const candidates = allDocs.filter(p => {
                 const hasTopic = !!p.topicId;
-                const hasEmbedding = p.embedding && Array.isArray(p.embedding) && p.embedding.length > 0;
+
+                // Handle Firestore VectorValue object (SDK specific)
+                // It might look like { _values: [...] } or just exist as an object
+                let vector = p.embedding;
+                if (vector && typeof vector === 'object' && !Array.isArray(vector) && vector._values) {
+                    vector = vector._values;
+                }
+
+                const hasEmbedding = vector && Array.isArray(vector) && vector.length > 0;
+
+                // Normalize for downstream use
+                if (hasEmbedding && !Array.isArray(p.embedding)) {
+                    p.embedding = vector;
+                }
+
                 return !hasTopic && hasEmbedding;
             });
 
