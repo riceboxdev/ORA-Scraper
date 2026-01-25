@@ -46,21 +46,23 @@ export const discoveryService = {
 
         try {
             // 1. Pick Seeds (Backlog Draining)
-            // Get posts meant for discovery (e.g. valid embedding, no topic yet)
-            // Since we can't easily query "topicId == null" without index, we grab recent posts and filter in memory
-            // yielding infinite scroll effect over time.
+            // Relaxed Query: fetch recent posts regardless of status, then filter for embeddings
             const snapshot = await db.collection('userPosts')
-                .where('embeddingStatus', '==', 'completed')
                 .orderBy('createdAt', 'desc')
-                .limit(200) // Look at last 200
+                .limit(300) // Bumped to 300 to find more potential seeds
                 .get();
 
-            const candidates = snapshot.docs
-                .map(d => ({ id: d.id, ...d.data() } as any))
-                .filter(p => !p.topicId && p.embedding && p.embedding.length > 0);
+            const allDocs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+            const candidates = allDocs.filter(p => {
+                // Candidates must NOT have a topicId, and MUST have a vector
+                return !p.topicId && p.embedding && Array.isArray(p.embedding) && p.embedding.length > 0;
+            });
+
+            console.log(`[Discovery] Scanned ${allDocs.length} recent posts. Found ${candidates.length} valid untagged candidates.`);
 
             if (candidates.length === 0) {
-                console.log('[Discovery] No untagged candidates found.');
+                console.log('[Discovery] No untagged candidates found. (Tips: Check if posts have embeddings, or if they are already tagged)');
                 return { runId, topicsFound: 0, topicsCreated: 0, topicsUpdated: 0, suggestionsCreated: 0 };
             }
 
