@@ -108,15 +108,23 @@ export const discoveryService = {
                 try {
                     // 2. Call Worker for Vector Search
                     const neighbors = await this.workerVectorSearch(seed.embedding);
+                    console.log(`   - Vector search returned ${neighbors.length} raw matches.`);
 
                     // Filter locally
                     const validNeighbors = neighbors.filter(n => n.score > 0.55);
-                    if (validNeighbors.length < 3) continue;
+                    console.log(`   - ${validNeighbors.length} matches > 0.55 score.`);
+
+                    if (validNeighbors.length < 3) {
+                        console.log('   -> Skipping: Not enough close neighbors.');
+                        continue;
+                    }
 
                     // 3. Get neighbor post details
                     const neighborIds = validNeighbors.map(n => n.id);
                     // Fetch neighbors (chunked if needed, but <20 is fine)
                     if (neighborIds.length === 0) continue;
+
+                    console.log(`   - Fetching details for ${neighborIds.length} neighbors...`);
 
                     const neighborsSnaps = await db.collection('userPosts')
                         .where(admin.firestore.FieldPath.documentId(), 'in', neighborIds)
