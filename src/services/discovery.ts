@@ -55,11 +55,28 @@ export const discoveryService = {
             const allDocs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
 
             const candidates = allDocs.filter(p => {
-                // Candidates must NOT have a topicId, and MUST have a vector
-                return !p.topicId && p.embedding && Array.isArray(p.embedding) && p.embedding.length > 0;
+                const hasTopic = !!p.topicId;
+                const hasEmbedding = p.embedding && Array.isArray(p.embedding) && p.embedding.length > 0;
+                return !hasTopic && hasEmbedding;
             });
 
             console.log(`[Discovery] Scanned ${allDocs.length} recent posts. Found ${candidates.length} valid untagged candidates.`);
+
+            // DEBUG: Inspect the first few rejected posts to see WHY
+            if (candidates.length === 0 && allDocs.length > 0) {
+                const sample = allDocs.slice(0, 3);
+                console.log('[Discovery] DEBUG: Inspecting first 3 posts:');
+                sample.forEach(p => {
+                    console.log(`- ID: ${p.id}`);
+                    console.log(`  topicId: ${p.topicId} (${typeof p.topicId})`);
+                    console.log(`  embedding exists: ${!!p.embedding}`);
+                    console.log(`  embedding isArray: ${Array.isArray(p.embedding)}`);
+                    console.log(`  embedding length: ${p.embedding?.length}`);
+                    if (p.embedding && !Array.isArray(p.embedding)) {
+                        console.log(`  embedding structure: ${JSON.stringify(p.embedding).slice(0, 100)}...`);
+                    }
+                });
+            }
 
             if (candidates.length === 0) {
                 console.log('[Discovery] No untagged candidates found. (Tips: Check if posts have embeddings, or if they are already tagged)');
