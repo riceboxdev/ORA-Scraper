@@ -31,6 +31,7 @@ const toVectorValue = (arr: number[]) => {
  */
 export const postProcessingService = {
     isRunning: false,
+    currentCooldown: 30000, // Start at 30s
 
     async startWorker() {
         if (this.isRunning) return;
@@ -40,12 +41,22 @@ export const postProcessingService = {
         // Loop indefinitely with a delay
         while (this.isRunning) {
             try {
-                await this.processWorkBatch();
+                const hadQuotaError = await this.processWorkBatch();
+
+                // If we hit quota, increase cooldown exponentially
+                if (hadQuotaError) {
+                    this.currentCooldown = Math.min(this.currentCooldown * 3, 600000); // Max 10 mins
+                    console.log(`[Processor] Quota hit. Increasing cooldown to ${this.currentCooldown / 1000}s`);
+                } else {
+                    // Slowly decrease cooldown on success back to 30s
+                    this.currentCooldown = Math.max(30000, this.currentCooldown - 30000);
+                }
             } catch (error) {
                 console.error('[Processor] Worker error:', error);
             }
-            // Wait 30 seconds between rounds
-            await new Promise(resolve => setTimeout(resolve, 30000));
+
+            // Wait with current cooldown
+            await new Promise(resolve => setTimeout(resolve, this.currentCooldown));
         }
     },
 
@@ -54,7 +65,7 @@ export const postProcessingService = {
         console.log('[Processor] Embedding worker stopping...');
     },
 
-    async processWorkBatch() {
+    async processWorkBatch(): Promise<boolean> {
         // Interleave processing: 10 new (pending), 10 old (migrating)
         const pendingSnap = await db.collection('userPosts')
             .where('embeddingStatus', '==', 'pending')
@@ -68,7 +79,7 @@ export const postProcessingService = {
 
         const docs = [...pendingSnap.docs, ...migratingSnap.docs];
 
-        if (docs.length === 0) return;
+        if (docs.length === 0) return false;
 
         console.log(`[Processor] Processing ${docs.length} embeddings (${pendingSnap.size} new, ${migratingSnap.size} migration)...`);
 
@@ -80,6 +91,9 @@ export const postProcessingService = {
                 await doc.ref.update({ embeddingStatus: 'vertex-v1-failed' });
                 continue;
             }
+
+            // Small throttle between requests (500ms) to avoid local bursts
+            await new Promise(resolve => setTimeout(resolve, 500));
 
             try {
                 const embedding = await embeddingService.generateEmbedding(
@@ -98,11 +112,17 @@ export const postProcessingService = {
                 } else {
                     await doc.ref.update({ embeddingStatus: 'vertex-v1-failed' });
                 }
-            } catch (error) {
+            } catch (error: any) {
+                // Specific check for Vertex AI Quota / Resource Exhausted
+                if (error.message?.includes('RESOURCE_EXHAUSTED') || error.code === 8) {
+                    console.warn(`[Processor] Resource exhausted for post ${doc.id}. Stopping batch.`);
+                    return true; // Signal quota hit
+                }
+
                 console.error(`[Processor] Failed to process post ${doc.id}:`, error);
-                // Mark as failed for now to prevent infinite loops, can be reset manually if needed
                 await doc.ref.update({ embeddingStatus: 'vertex-v1-failed' });
             }
         }
+        return false;
     }
 };
