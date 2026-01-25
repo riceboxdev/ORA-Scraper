@@ -12,7 +12,19 @@ const getVectorValueClass = () => {
     return null;
 };
 
-const VectorValue = getVectorValueClass();
+const VectorValueClass = getVectorValueClass();
+
+/**
+ * Ultra-robust vector converter
+ */
+const toVectorValue = (arr: number[]) => {
+    if ((firestoreModule as any).FieldValue?.vector) return (firestoreModule as any).FieldValue.vector(arr);
+    if (VectorValueClass && typeof VectorValueClass.create === 'function') return VectorValueClass.create(arr);
+    if (VectorValueClass) {
+        try { return new (VectorValueClass as any)(arr); } catch (e) { }
+    }
+    return arr;
+};
 
 async function migrate() {
     console.log('[Migration] Starting re-embedding process with Vertex AI...');
@@ -44,10 +56,11 @@ async function migrate() {
                 imageUrl
             );
 
-            if (embedding && VectorValue) {
+            if (embedding) {
+                const vector = toVectorValue(embedding);
                 // Update post with new embedding and status
                 await doc.ref.update({
-                    embedding: VectorValue.create(embedding),
+                    embedding: vector,
                     embeddingStatus: 'vertex-v1',
                     embeddingModel: 'vertex-ai-multimodal-001',
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()

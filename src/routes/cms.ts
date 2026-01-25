@@ -18,7 +18,19 @@ const getVectorValueClass = () => {
     return null;
 };
 
-const VectorValue = getVectorValueClass();
+const VectorValueClass = getVectorValueClass();
+
+/**
+ * Ultra-robust vector converter
+ */
+const toVectorValue = (arr: number[]) => {
+    if ((firestoreModule as any).FieldValue?.vector) return (firestoreModule as any).FieldValue.vector(arr);
+    if (VectorValueClass && typeof VectorValueClass.create === 'function') return VectorValueClass.create(arr);
+    if (VectorValueClass) {
+        try { return new (VectorValueClass as any)(arr); } catch (e) { }
+    }
+    return arr;
+};
 import { discoveryService } from '../services/discovery.js';
 
 const router = Router();

@@ -4,6 +4,7 @@
  */
 
 import express from 'express';
+import admin from 'firebase-admin';
 import cron from 'node-cron';
 import path from 'path';
 import { fileURLToPath } from 'url';
