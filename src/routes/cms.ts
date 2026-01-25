@@ -133,9 +133,10 @@ router.post('/posts/migrate-vectors', async (req: Request, res: Response) => {
                 imageUrl
             );
 
-            if (embedding && VectorValue) {
+            if (embedding) {
+                const vector = toVectorValue(embedding);
                 await doc.ref.update({
-                    embedding: VectorValue.create(embedding),
+                    embedding: vector,
                     embeddingStatus: 'vertex-v1',
                     embeddingModel: 'vertex-ai-multimodal-001',
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()

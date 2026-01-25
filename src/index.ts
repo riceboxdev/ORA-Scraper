@@ -19,12 +19,27 @@ import settingsRouter from './routes/settings.js';
 import cmsRouter from './routes/cms.js';
 import { processCrawlQueue } from './services/crawler.js';
 import { postProcessingService } from './services/post-processor.js';
+import * as firestoreModule from 'firebase-admin/firestore';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
 const PUBLIC_PATH = path.join(process.cwd(), 'public');
 console.log('Serving static files from:', PUBLIC_PATH);
+
+// Diagnostic Endpoint (Public for now to help debug)
+app.get('/api/diag', (req, res) => {
+    const diag: any = {
+        nodeVersion: process.version,
+        env: process.env.NODE_ENV,
+        firestoreExport: Object.keys(firestoreModule),
+        hasVectorValue: !!(firestoreModule as any).VectorValue,
+        hasDefaultVectorValue: !!(firestoreModule as any).default?.VectorValue,
+        hasAdminFirestoreVectorValue: !!(admin.firestore as any).VectorValue,
+        hasFieldValueVector: !!(firestoreModule as any).FieldValue?.vector,
+    };
+    res.json(diag);
+});
 
 // Middleware
 app.use(express.json());

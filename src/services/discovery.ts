@@ -3,9 +3,6 @@ import { config } from '../config.js';
 import admin from 'firebase-admin';
 import * as firestoreModule from 'firebase-admin/firestore';
 
-/**
- * Robustly resolve VectorValue class from firebase-admin
- */
 const getVectorValueClass = () => {
     try {
         if ((firestoreModule as any).VectorValue) return (firestoreModule as any).VectorValue;
@@ -17,7 +14,19 @@ const getVectorValueClass = () => {
     return null;
 };
 
-const VectorValue = getVectorValueClass();
+const VectorValueClass = getVectorValueClass();
+
+/**
+ * Ultra-robust vector converter
+ */
+const toVectorValue = (arr: number[]) => {
+    if ((firestoreModule as any).FieldValue?.vector) return (firestoreModule as any).FieldValue.vector(arr);
+    if (VectorValueClass && typeof VectorValueClass.create === 'function') return VectorValueClass.create(arr);
+    if (VectorValueClass) {
+        try { return new (VectorValueClass as any)(arr); } catch (e) { }
+    }
+    return arr;
+};
 import type { Category, DiscoveryRun } from '../types.js';
 import { embeddingService } from './embedding.js';
 
@@ -135,11 +144,7 @@ export const discoveryService = {
                         continue;
                     }
 
-                    if (!VectorValue) {
-                        console.error('[Discovery] Cannot run search: VectorValue class not found.');
-                        continue;
-                    }
-                    const vectorValue = VectorValue.create(vectorArray);
+                    const vectorValue = toVectorValue(vectorArray);
 
                     // Note: distanceThreshold may not be in all @types versions yet, casting to any if needed
                     const queryOptions: any = {
