@@ -133,6 +133,10 @@ export const discoveryService = {
             for (let i = 0; i < seeds.length; i++) {
                 const seed = seeds[i];
                 console.log(`[Discovery] Processing seed ${i + 1}/${seeds.length} (${seed.id})...`);
+
+                // Throttle between AI calls to respect overall quota
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
                 try {
                     // 2. Vector Search (Firestore Native)
                     console.log(`[Discovery] Searching for neighbors via Firestore findNearest...`);

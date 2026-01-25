@@ -92,8 +92,8 @@ export const postProcessingService = {
                 continue;
             }
 
-            // Small throttle between requests (1000ms) to stay safely under 120 RPM limit
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Small throttle between requests (1500ms) to stay safely under 120 RPM limit
+            await new Promise(resolve => setTimeout(resolve, 1500));
 
             try {
                 const embedding = await embeddingService.generateEmbedding(
