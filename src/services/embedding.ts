@@ -7,8 +7,19 @@ import axios from 'axios';
 const MODEL_ID = 'multimodalembedding@001';
 const LOCATION = 'us-central1'; // Common location for Vertex AI
 
+// Initialize client with credentials from env if available (for production)
+let credentials;
+if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    try {
+        credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    } catch (error) {
+        console.error('[Embedding] Error parsing FIREBASE_SERVICE_ACCOUNT_JSON:', error);
+    }
+}
+
 const client = new PredictionServiceClient({
     apiEndpoint: `${LOCATION}-aiplatform.googleapis.com`,
+    credentials,
 });
 
 export const embeddingService = {
