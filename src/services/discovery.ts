@@ -29,6 +29,7 @@ const toVectorValue = (arr: number[]) => {
 };
 import type { Category, DiscoveryRun } from '../types.js';
 import { embeddingService } from './embedding.js';
+import { aiService } from './ai.js';
 
 interface WorkerCluster {
     name: string;
@@ -192,7 +193,7 @@ export const discoveryService = {
                         .map(p => `- ${p.description || 'No desc'} [Tags: ${p.tags?.join(', ')}]`)
                         .join('\n');
 
-                    const namingResult = await this.workerGenerateName(context, topTags);
+                    const namingResult = await aiService.generateTopicFromCluster(context, topTags);
 
                     if (namingResult && namingResult.ideas && namingResult.ideas.length > 0) {
                         const idea = namingResult.ideas[0];
@@ -217,10 +218,9 @@ export const discoveryService = {
                                 description: idea.description,
                                 color: idea.suggestedColor,
                                 iconName: idea.suggestedIcon,
-                                matchingTags: topTags.split(', '),
-                                confidence: idea.confidence,
                                 thumbnailUrls: neighbors.slice(0, 3).map(p => p.content?.jpegUrl || p.content?.url).filter(Boolean),
-                                status: idea.confidence > 0.85 ? 'emerging' : 'suggestion',
+                                status: idea.confidence > 0.85 ? 'active' : 'emerging', // Make them visible immediately if confident
+                                postCount: neighbors.length, // Give them an initial count so they aren't at the bottom
                                 isSystemGenerated: true,
                                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                                 lastRefreshedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -259,16 +259,7 @@ export const discoveryService = {
         }
     },
 
-    // Worker Wrappers (AI Only Now)
-    async workerGenerateName(context: string, keywords: string): Promise<any> {
-        const response = await fetch(`${config.workerUrl}/ai/generate-name`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context, keywords })
-        });
-        const json = await response.json() as any;
-        return json.success ? json.data : null;
-    },
+},
 
     generateSlug(name: string): string {
         return name.toLowerCase()
