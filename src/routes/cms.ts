@@ -1025,8 +1025,35 @@ router.put('/ideas/:id', async (req: Request, res: Response) => {
  */
 router.delete('/ideas/:id', async (req: Request, res: Response) => {
     try {
-        await db.collection('categories').doc(req.params.id).delete();
-        res.json({ success: true });
+        const topicId = req.params.id;
+        const batch = db.batch();
+
+        // 1. Delete the category/idea
+        batch.delete(db.collection('categories').doc(topicId));
+
+        // 2. Untag all posts with this topicId
+        // Note: If there are > 500 posts, we should technically chunk this or use a background job.
+        // For now, we'll try to do up to 450 (saving room for the delete op) in one go, 
+        // or just fire multiple batches if needed.
+        const posts = await db.collection('userPosts').where('topicId', '==', topicId).get();
+
+        // Process in chunks of 450 to be safe
+        const chunkSize = 450;
+        for (let i = 0; i < posts.size; i += chunkSize) {
+            const chunk = posts.docs.slice(i, i + chunkSize);
+            const postsBatch = db.batch();
+            chunk.forEach(doc => {
+                postsBatch.update(doc.ref, {
+                    topicId: admin.firestore.FieldValue.delete(),
+                    topicConfidence: admin.firestore.FieldValue.delete()
+                });
+            });
+            await postsBatch.commit();
+        }
+
+        // Commit the idea deletion (separate batch for simplicity, though could be combined with first chunk)
+        await batch.commit();
+        res.json({ success: true, count: posts.size });
     } catch (error) {
         console.error('Error deleting idea:', error);
         res.status(500).json({ error: 'Failed to delete idea' });
@@ -1073,14 +1100,35 @@ router.post('/ideas/bulk/delete', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Topic IDs are required' });
         }
 
-        const batch = db.batch();
+        // Limit bulk delete to reasonable size to prevent timeouts
+        if (ids.length > 50) {
+            return res.status(400).json({ error: 'Too many items for bulk delete. Max 50.' });
+        }
 
-        ids.forEach(id => {
-            batch.delete(db.collection('categories').doc(id));
-        });
+        let updatedPostsCount = 0;
 
-        await batch.commit();
-        res.json({ success: true, count: ids.length });
+        for (const id of ids) {
+            // 1. Untag posts (batched)
+            const posts = await db.collection('userPosts').where('topicId', '==', id).get();
+            const chunkSize = 450;
+            for (let i = 0; i < posts.size; i += chunkSize) {
+                const chunk = posts.docs.slice(i, i + chunkSize);
+                const batch = db.batch();
+                chunk.forEach(doc => {
+                    batch.update(doc.ref, {
+                        topicId: admin.firestore.FieldValue.delete(),
+                        topicConfidence: admin.firestore.FieldValue.delete()
+                    });
+                });
+                await batch.commit();
+            }
+            updatedPostsCount += posts.size;
+
+            // 2. Delete the category
+            await db.collection('categories').doc(id).delete();
+        }
+
+        res.json({ success: true, count: ids.length, mappedPostsCleared: updatedPostsCount });
     } catch (error) {
         console.error('Error bulk deleting ideas:', error);
         res.status(500).json({ error: 'Failed to bulk delete ideas' });

@@ -13,6 +13,7 @@
         "reset:vertex": "tsx src/scripts/reset-embeddings.ts",
         "debug:ideas": "tsx src/scripts/debug-ideas.ts",
         "backfill:topics": "tsx src/scripts/backfill-topic-embeddings.ts",
+        "cleanup:topics": "tsx src/scripts/cleanup-deleted-topics.ts",
         "remove:pinterest": "tsx src/scripts/remove-pinterest-tags.ts"
     },
     "dependencies": {
