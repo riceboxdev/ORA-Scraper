@@ -3522,7 +3522,8 @@ async function runTopicDiscovery() {
         });
 
         showToast(`Discovery run complete! Found ${result.topicsFound} topics.`, 'success');
-        loadIdeas();
+        loadCmsIdeas();
+        loadCmsSuggestions();
     } catch (e) {
         console.error('Discovery failed:', e);
         showToast('Discovery process failed. Check server logs.', 'error');

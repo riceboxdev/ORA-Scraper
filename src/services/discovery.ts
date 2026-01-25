@@ -73,11 +73,11 @@ export const discoveryService = {
 
         try {
             // 1. Pick Seeds (Backlog Draining)
-            // Filter specifically for the new Vertex AI embeddings to avoid dimension mismatch
+            // Look for posts that are migrated (vertex-v1) but don't have a topic yet
+            // We look at 500 recent ones to find valid untagged candidates
             const snapshot = await db.collection('userPosts')
                 .where('embeddingStatus', '==', 'vertex-v1')
-                .orderBy('createdAt', 'desc')
-                .limit(300)
+                .limit(500)
                 .get();
 
             const allDocs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
