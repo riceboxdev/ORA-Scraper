@@ -2,10 +2,22 @@
 import { VertexAI } from '@google-cloud/vertexai';
 import { config } from '../config.js';
 
+// Initialize client with credentials from env if available (for production)
+let googleAuthOptions: any = undefined;
+if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    try {
+        const credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+        googleAuthOptions = { credentials };
+    } catch (error) {
+        console.error('[AI] Error parsing FIREBASE_SERVICE_ACCOUNT_JSON:', error);
+    }
+}
+
 // Initialize Vertex AI
 const vertex_ai = new VertexAI({
     project: config.firebaseProjectId,
-    location: 'us-central1'
+    location: 'us-central1',
+    googleAuthOptions
 });
 
 const model = vertex_ai.getGenerativeModel({
