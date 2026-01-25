@@ -1399,16 +1399,32 @@ async function renderSettingsPage(container) {
             <!-- Maintenance Section -->
             <div class="card">
                 <div class="card-header">
-                    <span class="card-title">🛠️ Maintenance</span>
+                    <span class="card-title">🛠️ Background Migration</span>
                 </div>
                 <div class="card-body">
                     <div class="flex flex-col gap-4">
                         <div>
-                            <p class="text-sm font-medium mb-1">Vector Migration (Vertex AI)</p>
-                            <p class="text-xs text-muted mb-3">Re-embed existing posts with high-fidelity Vertex AI vectors (1408-dim). Required for Discovery to work.</p>
-                            <button class="btn btn-secondary btn-sm" id="migrateVectorsBtn" onclick="runVectorMigration()">
-                                Run Migration (Batch of 50)
-                            </button>
+                            <p class="text-sm font-medium mb-1">Vertex AI Vector Migration</p>
+                            <p class="text-xs text-muted mb-3">Posts are being automatically re-embedded in the background. This process is passive and won't affect performance.</p>
+                            
+                            <div class="mb-2 flex justify-between text-xs">
+                                <span id="migrationStatusText">Calculating progress...</span>
+                                <span id="migrationPercent">0%</span>
+                            </div>
+                            <div class="w-full bg-white/5 rounded-full h-2 mb-4 overflow-hidden">
+                                <div id="migrationProgressBar" class="bg-primary h-full transition-all duration-500" style="width: 0%"></div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4 text-center">
+                                <div class="bg-white/5 p-2 rounded">
+                                    <div class="text-xs text-muted">Migrated</div>
+                                    <div id="migrationMigrated" class="text-sm font-bold">-</div>
+                                </div>
+                                <div class="bg-white/5 p-2 rounded">
+                                    <div class="text-xs text-muted">Pending</div>
+                                    <div id="migrationPending" class="text-sm font-bold">-</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1417,6 +1433,7 @@ async function renderSettingsPage(container) {
     `;
 
     await loadSettingsData();
+    updateMigrationStats(); // Initial fetch
 }
 
 async function backfillEmbeddings() {
@@ -3515,29 +3532,33 @@ async function runTopicDiscovery() {
     }
 }
 
-async function runVectorMigration() {
-    const btn = document.getElementById('migrateVectorsBtn');
-    if (!btn) return;
+async function updateMigrationStats() {
+    if (state.currentPage !== 'settings') return;
 
     try {
-        btn.disabled = true;
-        btn.textContent = '⏱️ Migrating...';
+        const stats = await api('/api/cms/migration/stats');
 
-        const result = await api('/api/cms/posts/migrate-vectors', {
-            method: 'POST',
-            body: JSON.stringify({ limit: 50 })
-        });
+        const migrated = stats.migrated || 0;
+        const total = stats.total || 0;
+        const percent = total > 0 ? Math.round((migrated / total) * 100) : 0;
 
-        if (result.count > 0) {
-            showToast(`Migration successful! Processed ${result.count} posts.`, 'success');
-        } else {
-            showToast('All posts are already migrated.', 'info');
+        const bar = document.getElementById('migrationProgressBar');
+        const pctText = document.getElementById('migrationPercent');
+        const statusText = document.getElementById('migrationStatusText');
+        const miCount = document.getElementById('migrationMigrated');
+        const peCount = document.getElementById('migrationPending');
+
+        if (bar) bar.style.width = `${percent}%`;
+        if (pctText) pctText.textContent = `${percent}%`;
+        if (statusText) statusText.textContent = percent === 100 ? '✅ Migration Complete' : '⚙️ Migrating in background...';
+        if (miCount) miCount.textContent = migrated.toLocaleString();
+        if (peCount) peCount.textContent = stats.pending.toLocaleString();
+
+        // Refresh stats every 10s while on settings page
+        if (state.currentPage === 'settings') {
+            setTimeout(updateMigrationStats, 10000);
         }
     } catch (e) {
-        console.error('Migration failed:', e);
-        showToast('Migration failed. Check server logs.', 'error');
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Run Migration (Batch of 50)';
+        console.error('Failed to update migration stats:', e);
     }
 }

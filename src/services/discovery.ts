@@ -1,7 +1,8 @@
-
 import { db } from '../firebase.js';
 import { config } from '../config.js';
 import admin from 'firebase-admin';
+import * as firestoreModule from 'firebase-admin/firestore';
+const VectorValue = (firestoreModule as any).VectorValue || (firestoreModule as any).default?.VectorValue;
 import type { Category, DiscoveryRun } from '../types.js';
 import { embeddingService } from './embedding.js';
 
@@ -119,7 +120,7 @@ export const discoveryService = {
                         continue;
                     }
 
-                    const vectorValue = (admin.firestore as any).VectorValue.create(vectorArray);
+                    const vectorValue = VectorValue.create(vectorArray);
 
                     // Note: distanceThreshold may not be in all @types versions yet, casting to any if needed
                     const queryOptions: any = {

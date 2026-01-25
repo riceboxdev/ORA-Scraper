@@ -7,6 +7,8 @@ import { Router, Request, Response } from 'express';
 import { db } from '../firebase.js';
 import { config } from '../config.js';
 import admin from 'firebase-admin';
+import * as firestoreModule from 'firebase-admin/firestore';
+const VectorValue = (firestoreModule as any).VectorValue || (firestoreModule as any).default?.VectorValue;
 import { discoveryService } from '../services/discovery.js';
 
 const router = Router();
@@ -65,6 +67,30 @@ router.post('/posts/backfill-embeddings', async (req: Request, res: Response) =>
 });
 
 /**
+ * GET /api/cms/migration/stats
+ */
+router.get('/migration/stats', async (_req: Request, res: Response) => {
+    try {
+        const totalPosts = await db.collection('userPosts').count().get();
+        const migratedPosts = await db.collection('userPosts')
+            .where('embeddingStatus', '==', 'vertex-v1')
+            .count().get();
+        const failedPosts = await db.collection('userPosts')
+            .where('embeddingStatus', '==', 'vertex-v1-failed')
+            .count().get();
+
+        res.json({
+            total: totalPosts.data().count,
+            migrated: migratedPosts.data().count,
+            failed: failedPosts.data().count,
+            pending: totalPosts.data().count - migratedPosts.data().count - failedPosts.data().count
+        });
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to fetch migration stats' });
+    }
+});
+
+/**
  * POST /api/cms/posts/migrate-vectors - Manually trigger a batch of re-embeddings (Vertex AI)
  */
 router.post('/posts/migrate-vectors', async (req: Request, res: Response) => {
@@ -99,7 +125,7 @@ router.post('/posts/migrate-vectors', async (req: Request, res: Response) => {
 
             if (embedding) {
                 await doc.ref.update({
-                    embedding: (admin.firestore as any).VectorValue.create(embedding),
+                    embedding: VectorValue.create(embedding),
                     embeddingStatus: 'vertex-v1',
                     embeddingModel: 'vertex-ai-multimodal-001',
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()

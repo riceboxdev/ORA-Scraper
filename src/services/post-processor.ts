@@ -1,10 +1,13 @@
-
 import { db } from '../firebase.js';
 import { embeddingService } from './embedding.js';
 import admin from 'firebase-admin';
+import * as firestoreModule from 'firebase-admin/firestore';
+
+// Defensive resolution of VectorValue for production environments
+const VectorValue = (firestoreModule as any).VectorValue || (firestoreModule as any).default?.VectorValue;
 
 /**
- * Background worker to process pending embeddings
+ * Background worker to process pending embeddings and migrate older ones
  */
 export const postProcessingService = {
     isRunning: false,
@@ -17,7 +20,7 @@ export const postProcessingService = {
         // Loop indefinitely with a delay
         while (this.isRunning) {
             try {
-                await this.processPendingEmbeddings();
+                await this.processWorkBatch();
             } catch (error) {
                 console.error('[Processor] Worker error:', error);
             }
@@ -31,23 +34,32 @@ export const postProcessingService = {
         console.log('[Processor] Embedding worker stopping...');
     },
 
-    async processPendingEmbeddings() {
-        // Query for pending posts
-        const snapshot = await db.collection('userPosts')
+    async processWorkBatch() {
+        // Interleave processing: 10 new (pending), 10 old (migrating)
+        const pendingSnap = await db.collection('userPosts')
             .where('embeddingStatus', '==', 'pending')
-            .limit(20)
+            .limit(10)
             .get();
 
-        if (snapshot.empty) return;
+        const migratingSnap = await db.collection('userPosts')
+            .where('embeddingStatus', '!=', 'vertex-v1')
+            .where('embeddingStatus', '!=', 'pending')
+            .where('embeddingStatus', '!=', 'vertex-v1-failed')
+            .limit(pendingSnap.empty ? 20 : 10)
+            .get();
 
-        console.log(`[Processor] Processing ${snapshot.size} pending embeddings...`);
+        const docs = [...pendingSnap.docs, ...migratingSnap.docs];
 
-        for (const doc of snapshot.docs) {
+        if (docs.length === 0) return;
+
+        console.log(`[Processor] Processing ${docs.length} embeddings (${pendingSnap.size} new, ${migratingSnap.size} migration)...`);
+
+        for (const doc of docs) {
             const post = doc.data();
             const imageUrl = post.content?.jpegUrl || post.content?.url;
 
             if (!imageUrl) {
-                await doc.ref.update({ embeddingStatus: 'failed' });
+                await doc.ref.update({ embeddingStatus: 'vertex-v1-failed' });
                 continue;
             }
 
@@ -57,19 +69,20 @@ export const postProcessingService = {
                     imageUrl
                 );
 
-                if (embedding) {
+                if (embedding && VectorValue) {
                     await doc.ref.update({
-                        embedding: (admin.firestore as any).VectorValue.create(embedding),
-                        embeddingStatus: 'vertex-v1', // Using our new version tag
+                        embedding: VectorValue.create(embedding),
+                        embeddingStatus: 'vertex-v1',
                         embeddingModel: 'vertex-ai-multimodal-001',
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
                 } else {
-                    await doc.ref.update({ embeddingStatus: 'failed' });
+                    await doc.ref.update({ embeddingStatus: 'vertex-v1-failed' });
                 }
             } catch (error) {
                 console.error(`[Processor] Failed to process post ${doc.id}:`, error);
-                // Keep status as pending to retry later or mark as failed
+                // Mark as failed for now to prevent infinite loops, can be reset manually if needed
+                await doc.ref.update({ embeddingStatus: 'vertex-v1-failed' });
             }
         }
     }
