@@ -97,11 +97,14 @@ export const discoveryService = {
                 return { runId, topicsFound: 0, topicsCreated: 0, topicsUpdated: 0, suggestionsCreated: 0 };
             }
 
-            // Pick random seeds
-            const seeds = candidates.sort(() => 0.5 - Math.random()).slice(0, sampleSize);
-            console.log(`[Discovery] Selected ${seeds.length} seeds.`);
+            // Pick random seeds (CAP at 10 to avoid timeouts)
+            const MAX_SEEDS = 10;
+            const seeds = candidates.sort(() => 0.5 - Math.random()).slice(0, Math.min(sampleSize, MAX_SEEDS));
+            console.log(`[Discovery] Selected ${seeds.length} seeds (Capped at ${MAX_SEEDS} per run).`);
 
-            for (const seed of seeds) {
+            for (let i = 0; i < seeds.length; i++) {
+                const seed = seeds[i];
+                console.log(`[Discovery] Processing seed ${i + 1}/${seeds.length} (${seed.id})...`);
                 try {
                     // 2. Call Worker for Vector Search
                     const neighbors = await this.workerVectorSearch(seed.embedding);
