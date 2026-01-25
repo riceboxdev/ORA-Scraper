@@ -26,211 +26,178 @@ const CATEGORIES_COLLECTION = 'categories';
 const SUGGESTIONS_COLLECTION = 'ideaSuggestions';
 const RUNS_COLLECTION = 'discovery_runs';
 
-/**
- * Service to handle automated topic discovery and management
- */
-export const discoveryService = {
-
     /**
-     * Run the full discovery process:
-     * 1. Call worker to find clusters
-     * 2. Match against existing topics
-     * 3. Create/Update topics or suggestions
+     * Run the hybrid discovery process:
+     * 1. Node.js picks seeds
+     * 2. Worker computes vectors
+     * 3. Node.js validates & calls AI for naming
      */
-    async runDiscoveryJob(sampleSize: number = 500): Promise<DiscoveryResult> {
-        console.log(`[Discovery] Starting job with sample size ${sampleSize}...`);
+    async runDiscoveryJob(sampleSize: number = 20): Promise < DiscoveryResult > {
+    console.log(`[Discovery] Starting Hybrid Job (Seeds: ${sampleSize})...`);
+    const runId = `run-${Date.now()}`;
 
-        // 1. Create run record
-        const runRef = await db.collection(RUNS_COLLECTION).add({
-            startedAt: admin.firestore.FieldValue.serverTimestamp(),
-            status: 'running',
-            sampleSize,
-            topicsFound: 0,
-            topicsCreated: 0,
-            topicsUpdated: 0,
-            suggestionsCreated: 0
+    let topicsFound = 0;
+    let topicsCreated = 0;
+
+    try {
+        // 1. Pick Seeds (Backlog Draining)
+        // Get posts meant for discovery (e.g. valid embedding, no topic yet)
+        // Since we can't easily query "topicId == null" without index, we grab recent posts and filter in memory
+        // yielding infinite scroll effect over time.
+        const snapshot = await db.collection('userPosts')
+            .where('embeddingStatus', '==', 'completed')
+            .orderBy('createdAt', 'desc')
+            .limit(200) // Look at last 200
+            .get();
+
+        const candidates = snapshot.docs
+            .map(d => ({ id: d.id, ...d.data() } as any))
+            .filter(p => !p.topicId && p.embedding && p.embedding.length > 0);
+
+        if(candidates.length === 0) {
+    console.log('[Discovery] No untagged candidates found.');
+    return { runId, topicsFound: 0, topicsCreated: 0, topicsUpdated: 0, suggestionsCreated: 0 };
+}
+
+// Pick random seeds
+const seeds = candidates.sort(() => 0.5 - Math.random()).slice(0, sampleSize);
+console.log(`[Discovery] Selected ${seeds.length} seeds.`);
+
+for (const seed of seeds) {
+    try {
+        // 2. Call Worker for Vector Search
+        const neighbors = await this.workerVectorSearch(seed.embedding);
+
+        // Filter locally
+        const validNeighbors = neighbors.filter(n => n.score > 0.55);
+        if (validNeighbors.length < 3) continue;
+
+        // 3. Get neighbor post details
+        const neighborIds = validNeighbors.map(n => n.id);
+        // Fetch neighbors (chunked if needed, but <20 is fine)
+        if (neighborIds.length === 0) continue;
+
+        const neighborsSnaps = await db.collection('userPosts')
+            .where(admin.firestore.FieldPath.documentId(), 'in', neighborIds)
+            .get();
+
+        const neighborPosts = neighborsSnaps.docs.map(d => d.data());
+
+        // 4. Analyze Tags
+        const tagCounts: Record<string, number> = {};
+        neighborPosts.forEach(p => {
+            if (Array.isArray(p.tags)) {
+                p.tags.forEach((t: string) => {
+                    const tag = t.toLowerCase().trim();
+                    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                });
+            }
         });
-        const runId = runRef.id;
 
-        try {
-            // 2. Fetch clusters from worker
-            console.log(`[Discovery] Fetching clusters from worker...`);
-            const clusters = await this.fetchClustersFromWorker(sampleSize);
-            console.log(`[Discovery] Worker returned ${clusters.length} clusters.`);
+        const topTags = Object.entries(tagCounts)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 5)
+            .map(([tag]) => tag)
+            .join(', ');
 
-            // 3. Load ONLY relevant existing categories for matching (Scalable Check)
-            const slugsToCheck = clusters.map(c => this.generateSlug(c.name));
-            let existingCategories: Category[] = [];
+        // 5. Call Worker for Naming
+        const context = neighborPosts.slice(0, 8)
+            .map(p => `- ${p.description || 'No desc'} [Tags: ${p.tags?.join(', ')}]`)
+            .join('\n');
 
-            if (slugsToCheck.length > 0) {
-                // Firestore 'in' query supports max 10/30 items depending on SDK version. 
-                // We'll chunk it to be safe (chunks of 10)
-                const chunkSize = 10;
-                for (let i = 0; i < slugsToCheck.length; i += chunkSize) {
-                    const chunk = slugsToCheck.slice(i, i + chunkSize);
-                    const snapshot = await db.collection(CATEGORIES_COLLECTION)
-                        .where('slug', 'in', chunk)
-                        .get();
+        const namingResult = await this.workerGenerateName(context, topTags);
 
-                    const chunkDocs = snapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    })) as Category[];
-                    existingCategories = [...existingCategories, ...chunkDocs];
-                }
+        if (namingResult && namingResult.ideas && namingResult.ideas.length > 0) {
+            const idea = namingResult.ideas[0];
+            topicsFound++;
+
+            // 6. Persist Topic
+            // Check dedupe by slug
+            const slug = this.generateSlug(idea.name);
+            const existing = await db.collection(CATEGORIES_COLLECTION).where('slug', '==', slug).limit(1).get();
+
+            let topicId;
+
+            if (!existing.empty) {
+                // Update existng
+                topicId = existing.docs[0].id;
+                await existing.docs[0].ref.update({
+                    lastRefreshedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    confidence: idea.confidence
+                });
+            } else {
+                // Create New
+                const newRef = await db.collection(CATEGORIES_COLLECTION).add({
+                    name: idea.name,
+                    slug,
+                    description: idea.description,
+                    color: idea.suggestedColor,
+                    iconName: idea.suggestedIcon,
+                    matchingTags: topTags.split(', '),
+                    confidence: idea.confidence,
+                    thumbnailUrls: neighborPosts.slice(0, 3).map(p => p.content?.jpegUrl || p.content?.url).filter(Boolean),
+                    status: idea.confidence > 0.85 ? 'emerging' : 'suggestion',
+                    isSystemGenerated: true,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    lastRefreshedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                topicId = newRef.id;
+                topicsCreated++;
             }
 
-            let topicsCreated = 0;
-            let topicsUpdated = 0;
-            let suggestionsCreated = 0;
-
-            const batch = db.batch();
-            let opCount = 0;
-
-            // 4. Process each cluster
-            for (const cluster of clusters) {
-                const normalizedSlug = this.generateSlug(cluster.name);
-
-                // Try to find a match
-                const match = existingCategories.find(c =>
-                    c.slug === normalizedSlug ||
-                    c.name.toLowerCase() === cluster.name.toLowerCase()
-                );
-
-                if (match) {
-                    // UPDATE existing topic
-                    const catRef = db.collection(CATEGORIES_COLLECTION).doc(match.id);
-                    batch.update(catRef, {
-                        lastRefreshedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        confidence: cluster.confidence, // Update confidence based on latest run
-                        // We might want to merge keywords/thumbnails here too
-                    });
-                    topicsUpdated++;
-                } else {
-                    // NEW Topic or Suggestion
-                    if (cluster.confidence > 0.85) {
-                        // High confidence -> Auto-create Emerging Topic
-                        const newCatRef = db.collection(CATEGORIES_COLLECTION).doc();
-                        const newTopic: Partial<Category> = {
-                            name: cluster.name,
-                            slug: normalizedSlug,
-                            description: cluster.description,
-                            color: cluster.suggestedColor,
-                            iconName: cluster.suggestedIcon,
-                            postCount: 0, // Will be calculated separately or by worker?
-                            thumbnailUrls: cluster.thumbnailUrls,
-                            createdAt: new Date().toISOString(),
-                            status: 'emerging',
-                            confidence: cluster.confidence,
-                            isSystemGenerated: true,
-                            keywords: cluster.matchingTags,
-                            lastRefreshedAt: new Date().toISOString(),
-                            source: 'automated-discovery'
-                        };
-
-                        // Use set instead of create for explicit control if needed, but here simple set
-                        batch.set(newCatRef, newTopic);
-                        topicsCreated++;
-                    } else {
-                        // Low confidence -> Suggestion
-                        // Check if suggestion exists to avoid dupes? 
-                        // For simplicity, we'll creates new or overwrite based on slug if we generated IDs deterministically, 
-                        // but currently suggestions are random IDs. We'll just add new ones for now or todo: dedupe.
-                        // Ideally we check if a pending suggestion exists.
-
-                        const suggestionRef = db.collection(SUGGESTIONS_COLLECTION).doc();
-                        batch.set(suggestionRef, {
-                            ...cluster,
-                            suggestedAt: admin.firestore.FieldValue.serverTimestamp(),
-                            status: 'pending',
-                            sourceRunId: runId
-                        });
-                        suggestionsCreated++;
-                    }
-                }
-
-                opCount++;
-                if (opCount >= 450) { // Commit batch if getting full
-                    await batch.commit();
-                    opCount = 0;
-                }
-            }
-
-            if (opCount > 0) {
+            // 7. Tag Posts
+            if (topicId) {
+                const batch = db.batch();
+                neighborsSnaps.docs.forEach(doc => {
+                    batch.update(doc.ref, { topicId });
+                });
                 await batch.commit();
             }
+        }
 
-            // 5. Complete run record
-            const result: DiscoveryResult = {
-                runId,
-                topicsFound: clusters.length,
-                topicsCreated,
-                topicsUpdated,
-                suggestionsCreated
-            };
+    } catch (err) {
+        console.error(`[Discovery] Error processing seed ${seed.id}:`, err);
+    }
+}
 
-            await runRef.update({
-                status: 'completed',
-                completedAt: admin.firestore.FieldValue.serverTimestamp(),
-                ...result
-            });
-
-            console.log(`[Discovery] Job completed. Created ${topicsCreated}, Updated ${topicsUpdated}, Suggestions ${suggestionsCreated}`);
-            return result;
+return {
+    runId,
+    topicsFound,
+    topicsCreated,
+    topicsUpdated: 0,
+    suggestionsCreated: 0
+};
 
         } catch (error: any) {
-            console.error('[Discovery] Job failed:', error);
-            await runRef.update({
-                status: 'failed',
-                completedAt: admin.firestore.FieldValue.serverTimestamp(),
-                error: error.message
-            });
-            throw error;
-        }
+    console.error('[Discovery] Job failed:', error);
+    throw error;
+}
     },
 
-    async fetchClustersFromWorker(sampleSize: number): Promise<WorkerCluster[]> {
-        const response = await fetch(`${config.workerUrl}/discover`, {
+    // Worker Wrappers
+    async workerVectorSearch(vector: number[]): Promise < { id: string; score: number }[] > {
+    const response = await fetch(`${config.workerUrl}/vector/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vector, limit: 20 })
+    });
+    const json = await response.json() as any;
+    return json.success ? json.data.matches : [];
+},
+
+    async workerGenerateName(context: string, keywords: string): Promise < any > {
+        const response = await fetch(`${config.workerUrl}/ai/generate-name`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sampleSize })
+            body: JSON.stringify({ context, keywords })
         });
-
-        if (!response.ok) {
-            const text = await response.text();
-            throw new Error(`Worker error ${response.status}: ${text}`);
-        }
-
-        const data = await response.json() as any;
-        console.log('[Discovery] Worker Response:', JSON.stringify(data, null, 2));
-
-        // Handle rich suggestions format
-        if (data.suggestions && Array.isArray(data.suggestions)) {
-            return data.suggestions;
-        }
-
-        // Handle string-only legacy/fallback format
-        // Structure: { success: true, data: { ideas: ["Name 1", "Name 2"] } }
-        if (data.data && Array.isArray(data.data.ideas)) {
-            console.log('[Discovery] Adapting legacy string-list response');
-            return data.data.ideas.map((name: string) => ({
-                name,
-                description: `Discovered niche: ${name}`,
-                confidence: 0.7, // Default lower confidence for string-only matches
-                suggestedColor: '#' + Math.floor(Math.random() * 16777215).toString(16), // Random color
-                suggestedIcon: 'hash',
-                matchingTags: [name.toLowerCase().replace(/\s+/g, '-')],
-                thumbnailUrls: []
-            }));
-        }
-
-        console.warn('[Discovery] Worker returned NO compatible suggestions. Response structure:', Object.keys(data));
-        return [];
+        const json = await response.json() as any;
+        return json.success ? json.data : null;
     },
 
-    generateSlug(name: string): string {
-        return name.toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/(^-|-$)/g, '');
-    }
+        generateSlug(name: string): string {
+    return name.toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+}
 };
