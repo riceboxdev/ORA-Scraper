@@ -1395,6 +1395,24 @@ async function renderSettingsPage(container) {
                     </div>
                 </div>
             </div>
+
+            <!-- Maintenance Section -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">🛠️ Maintenance</span>
+                </div>
+                <div class="card-body">
+                    <div class="flex flex-col gap-4">
+                        <div>
+                            <p class="text-sm font-medium mb-1">Vector Migration (Vertex AI)</p>
+                            <p class="text-xs text-muted mb-3">Re-embed existing posts with high-fidelity Vertex AI vectors (1408-dim). Required for Discovery to work.</p>
+                            <button class="btn btn-secondary btn-sm" id="migrateVectorsBtn" onclick="runVectorMigration()">
+                                Run Migration (Batch of 50)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     `;
 
@@ -2488,6 +2506,9 @@ async function renderIdeasPage(container) {
         <div class="page-header">
             <h1 class="page-title">Topics (Niches)</h1>
             <div class="page-actions">
+                <button class="btn btn-ghost mr-2" id="discoveryBtn" onclick="runTopicDiscovery()">
+                    ✨ Run Discovery
+                </button>
                 <button class="btn btn-primary" onclick="openAddIdeaModal()">+ Add Topic</button>
             </div>
         </div>
@@ -3469,3 +3490,54 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 30000);
 });
+
+async function runTopicDiscovery() {
+    const btn = document.getElementById('discoveryBtn');
+    if (!btn) return;
+
+    try {
+        btn.disabled = true;
+        btn.textContent = '⏱️ Running...';
+
+        const result = await api('/api/cms/ideas/generate', {
+            method: 'POST',
+            body: JSON.stringify({ sampleSize: 10 })
+        });
+
+        showToast(`Discovery run complete! Found ${result.topicsFound} topics.`, 'success');
+        loadIdeas();
+    } catch (e) {
+        console.error('Discovery failed:', e);
+        showToast('Discovery process failed. Check server logs.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '✨ Run Discovery';
+    }
+}
+
+async function runVectorMigration() {
+    const btn = document.getElementById('migrateVectorsBtn');
+    if (!btn) return;
+
+    try {
+        btn.disabled = true;
+        btn.textContent = '⏱️ Migrating...';
+
+        const result = await api('/api/cms/posts/migrate-vectors', {
+            method: 'POST',
+            body: JSON.stringify({ limit: 50 })
+        });
+
+        if (result.count > 0) {
+            showToast(`Migration successful! Processed ${result.count} posts.`, 'success');
+        } else {
+            showToast('All posts are already migrated.', 'info');
+        }
+    } catch (e) {
+        console.error('Migration failed:', e);
+        showToast('Migration failed. Check server logs.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Run Migration (Batch of 50)';
+    }
+}

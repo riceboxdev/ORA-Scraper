@@ -64,6 +64,59 @@ router.post('/posts/backfill-embeddings', async (req: Request, res: Response) =>
     }
 });
 
+/**
+ * POST /api/cms/posts/migrate-vectors - Manually trigger a batch of re-embeddings (Vertex AI)
+ */
+router.post('/posts/migrate-vectors', async (req: Request, res: Response) => {
+    try {
+        const { limit = 50 } = req.body;
+        const { embeddingService } = await import('../services/embedding.js');
+
+        // Get posts that are NOT vertex-v1
+        const snapshot = await db.collection('userPosts')
+            .where('embeddingStatus', '!=', 'vertex-v1')
+            .limit(limit)
+            .get();
+
+        if (snapshot.empty) {
+            return res.json({ count: 0, message: 'No posts need migration' });
+        }
+
+        let count = 0;
+        for (const doc of snapshot.docs) {
+            const post = doc.data();
+            const imageUrl = post.content?.jpegUrl || post.content?.url;
+
+            if (!imageUrl) {
+                await doc.ref.update({ embeddingStatus: 'vertex-v1-failed' });
+                continue;
+            }
+
+            const embedding = await embeddingService.generateEmbedding(
+                post.description || undefined,
+                imageUrl
+            );
+
+            if (embedding) {
+                await doc.ref.update({
+                    embedding: (admin.firestore as any).VectorValue.create(embedding),
+                    embeddingStatus: 'vertex-v1',
+                    embeddingModel: 'vertex-ai-multimodal-001',
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                count++;
+            } else {
+                await doc.ref.update({ embeddingStatus: 'vertex-v1-failed' });
+            }
+        }
+
+        res.json({ success: true, count, message: `Migrated ${count} posts to Vertex AI vectors.` });
+    } catch (error: any) {
+        console.error('Error migrating vectors:', error);
+        res.status(500).json({ error: 'Migration failed', details: error.message });
+    }
+});
+
 
 /**
  * GET /api/cms/posts - List posts with filters

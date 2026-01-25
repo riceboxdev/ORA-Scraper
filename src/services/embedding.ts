@@ -1,6 +1,6 @@
 
 import { PredictionServiceClient, helpers } from '@google-cloud/aiplatform';
-import { config } from './config.js';
+import { config } from '../config.js';
 import axios from 'axios';
 
 // Multimodal Embedding Model
