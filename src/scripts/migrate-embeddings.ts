@@ -2,7 +2,17 @@ import { db } from '../firebase.js';
 import { embeddingService } from '../services/embedding.js';
 import admin from 'firebase-admin';
 import * as firestoreModule from 'firebase-admin/firestore';
-const VectorValue = (firestoreModule as any).VectorValue || (firestoreModule as any).default?.VectorValue;
+
+const getVectorValueClass = () => {
+    try {
+        if ((firestoreModule as any).VectorValue) return (firestoreModule as any).VectorValue;
+        if ((firestoreModule as any).default?.VectorValue) return (firestoreModule as any).default.VectorValue;
+        if ((admin.firestore as any).VectorValue) return (admin.firestore as any).VectorValue;
+    } catch (e) { }
+    return null;
+};
+
+const VectorValue = getVectorValueClass();
 
 async function migrate() {
     console.log('[Migration] Starting re-embedding process with Vertex AI...');
@@ -34,7 +44,7 @@ async function migrate() {
                 imageUrl
             );
 
-            if (embedding) {
+            if (embedding && VectorValue) {
                 // Update post with new embedding and status
                 await doc.ref.update({
                     embedding: VectorValue.create(embedding),

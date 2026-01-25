@@ -2,7 +2,22 @@ import { db } from '../firebase.js';
 import { config } from '../config.js';
 import admin from 'firebase-admin';
 import * as firestoreModule from 'firebase-admin/firestore';
-const VectorValue = (firestoreModule as any).VectorValue || (firestoreModule as any).default?.VectorValue;
+
+/**
+ * Robustly resolve VectorValue class from firebase-admin
+ */
+const getVectorValueClass = () => {
+    try {
+        if ((firestoreModule as any).VectorValue) return (firestoreModule as any).VectorValue;
+        if ((firestoreModule as any).default?.VectorValue) return (firestoreModule as any).default.VectorValue;
+        if ((admin.firestore as any).VectorValue) return (admin.firestore as any).VectorValue;
+    } catch (e) {
+        console.warn('[Discovery] Failed to resolve VectorValue class:', e);
+    }
+    return null;
+};
+
+const VectorValue = getVectorValueClass();
 import type { Category, DiscoveryRun } from '../types.js';
 import { embeddingService } from './embedding.js';
 
@@ -120,6 +135,10 @@ export const discoveryService = {
                         continue;
                     }
 
+                    if (!VectorValue) {
+                        console.error('[Discovery] Cannot run search: VectorValue class not found.');
+                        continue;
+                    }
                     const vectorValue = VectorValue.create(vectorArray);
 
                     // Note: distanceThreshold may not be in all @types versions yet, casting to any if needed

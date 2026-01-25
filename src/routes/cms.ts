@@ -8,7 +8,17 @@ import { db } from '../firebase.js';
 import { config } from '../config.js';
 import admin from 'firebase-admin';
 import * as firestoreModule from 'firebase-admin/firestore';
-const VectorValue = (firestoreModule as any).VectorValue || (firestoreModule as any).default?.VectorValue;
+
+const getVectorValueClass = () => {
+    try {
+        if ((firestoreModule as any).VectorValue) return (firestoreModule as any).VectorValue;
+        if ((firestoreModule as any).default?.VectorValue) return (firestoreModule as any).default.VectorValue;
+        if ((admin.firestore as any).VectorValue) return (admin.firestore as any).VectorValue;
+    } catch (e) { }
+    return null;
+};
+
+const VectorValue = getVectorValueClass();
 import { discoveryService } from '../services/discovery.js';
 
 const router = Router();
@@ -123,7 +133,7 @@ router.post('/posts/migrate-vectors', async (req: Request, res: Response) => {
                 imageUrl
             );
 
-            if (embedding) {
+            if (embedding && VectorValue) {
                 await doc.ref.update({
                     embedding: VectorValue.create(embedding),
                     embeddingStatus: 'vertex-v1',

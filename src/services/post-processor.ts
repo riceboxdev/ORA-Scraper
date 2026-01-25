@@ -3,8 +3,16 @@ import { embeddingService } from './embedding.js';
 import admin from 'firebase-admin';
 import * as firestoreModule from 'firebase-admin/firestore';
 
-// Defensive resolution of VectorValue for production environments
-const VectorValue = (firestoreModule as any).VectorValue || (firestoreModule as any).default?.VectorValue;
+const getVectorValueClass = () => {
+    try {
+        if ((firestoreModule as any).VectorValue) return (firestoreModule as any).VectorValue;
+        if ((firestoreModule as any).default?.VectorValue) return (firestoreModule as any).default.VectorValue;
+        if ((admin.firestore as any).VectorValue) return (admin.firestore as any).VectorValue;
+    } catch (e) { }
+    return null;
+};
+
+const VectorValue = getVectorValueClass();
 
 /**
  * Background worker to process pending embeddings and migrate older ones
@@ -42,9 +50,7 @@ export const postProcessingService = {
             .get();
 
         const migratingSnap = await db.collection('userPosts')
-            .where('embeddingStatus', '!=', 'vertex-v1')
-            .where('embeddingStatus', '!=', 'pending')
-            .where('embeddingStatus', '!=', 'vertex-v1-failed')
+            .where('embeddingStatus', 'not-in', ['vertex-v1', 'pending', 'vertex-v1-failed'])
             .limit(pendingSnap.empty ? 20 : 10)
             .get();
 
