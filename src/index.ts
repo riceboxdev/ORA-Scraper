@@ -18,6 +18,7 @@ import imagesRouter from './routes/images.js';
 import settingsRouter from './routes/settings.js';
 import cmsRouter from './routes/cms.js';
 import { processCrawlQueue } from './services/crawler.js';
+import { postProcessingService } from './services/post-processor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -127,6 +128,11 @@ async function start(): Promise<void> {
 
         // Start scheduler
         await updateSchedule();
+
+        // Start background post processor (embeddings)
+        postProcessingService.startWorker().catch(e => {
+            console.error('[System] Embedding worker failed to start:', e);
+        });
 
         // Schedule daily discovery job (3 AM)
         cron.schedule('0 3 * * *', async () => {

@@ -3,6 +3,7 @@ import { db } from '../firebase.js';
 import { config } from '../config.js';
 import admin from 'firebase-admin';
 import type { Category, DiscoveryRun } from '../types.js';
+import { embeddingService } from './embedding.js';
 
 interface WorkerCluster {
     name: string;
@@ -46,10 +47,11 @@ export const discoveryService = {
 
         try {
             // 1. Pick Seeds (Backlog Draining)
-            // Relaxed Query: fetch recent posts regardless of status, then filter for embeddings
+            // Filter specifically for the new Vertex AI embeddings to avoid dimension mismatch
             const snapshot = await db.collection('userPosts')
+                .where('embeddingStatus', '==', 'vertex-v1')
                 .orderBy('createdAt', 'desc')
-                .limit(300) // Bumped to 300 to find more potential seeds
+                .limit(300)
                 .get();
 
             const allDocs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
@@ -106,35 +108,45 @@ export const discoveryService = {
                 const seed = seeds[i];
                 console.log(`[Discovery] Processing seed ${i + 1}/${seeds.length} (${seed.id})...`);
                 try {
-                    // 2. Call Worker for Vector Search
-                    const neighbors = await this.workerVectorSearch(seed.embedding);
-                    console.log(`   - Vector search returned ${neighbors.length} raw matches.`);
+                    // 2. Vector Search (Firestore Native)
+                    console.log(`[Discovery] Searching for neighbors via Firestore findNearest...`);
 
-                    // Filter locally
-                    const validNeighbors = neighbors.filter(n => n.score > 0.55);
-                    console.log(`   - ${validNeighbors.length} matches > 0.55 score.`);
+                    // We need a VectorValue for the query
+                    // Ensure we have a valid vector
+                    const vectorArray = seed.embedding;
+                    if (!vectorArray || vectorArray.length === 0) {
+                        console.log('   -> Skipping: Seed has no embedding.');
+                        continue;
+                    }
 
-                    if (validNeighbors.length < 3) {
+                    const vectorValue = (admin.firestore as any).VectorValue.create(vectorArray);
+
+                    // Note: distanceThreshold may not be in all @types versions yet, casting to any if needed
+                    const queryOptions: any = {
+                        limit: 20,
+                        distanceMeasure: 'COSINE',
+                        distanceThreshold: 0.55
+                    };
+
+                    const neighborsSnaps = await (db.collection('userPosts') as any)
+                        .findNearest('embedding', vectorValue, queryOptions)
+                        .get();
+
+                    const neighbors = neighborsSnaps.docs.map(d => ({
+                        id: d.id,
+                        ...d.data()
+                    })) as any[];
+
+                    console.log(`   - Found ${neighbors.length} neighbors via Firestore.`);
+
+                    if (neighbors.length < 3) {
                         console.log('   -> Skipping: Not enough close neighbors.');
                         continue;
                     }
 
-                    // 3. Get neighbor post details
-                    const neighborIds = validNeighbors.map(n => n.id);
-                    // Fetch neighbors (chunked if needed, but <20 is fine)
-                    if (neighborIds.length === 0) continue;
-
-                    console.log(`   - Fetching details for ${neighborIds.length} neighbors...`);
-
-                    const neighborsSnaps = await db.collection('userPosts')
-                        .where(admin.firestore.FieldPath.documentId(), 'in', neighborIds)
-                        .get();
-
-                    const neighborPosts = neighborsSnaps.docs.map(d => d.data());
-
-                    // 4. Analyze Tags
+                    // 3. Analyze Tags
                     const tagCounts: Record<string, number> = {};
-                    neighborPosts.forEach(p => {
+                    neighbors.forEach(p => {
                         if (Array.isArray(p.tags)) {
                             p.tags.forEach((t: string) => {
                                 const tag = t.toLowerCase().trim();
@@ -149,8 +161,9 @@ export const discoveryService = {
                         .map(([tag]) => tag)
                         .join(', ');
 
-                    // 5. Call Worker for Naming
-                    const context = neighborPosts.slice(0, 8)
+                    // 4. Call Worker for Naming (AI Only)
+                    console.log(`   - Requesting AI naming for cluster...`);
+                    const context = neighbors.slice(0, 8)
                         .map(p => `- ${p.description || 'No desc'} [Tags: ${p.tags?.join(', ')}]`)
                         .join('\n');
 
@@ -160,22 +173,19 @@ export const discoveryService = {
                         const idea = namingResult.ideas[0];
                         topicsFound++;
 
-                        // 6. Persist Topic
-                        // Check dedupe by slug
+                        // 5. Persist Topic
                         const slug = this.generateSlug(idea.name);
                         const existing = await db.collection(CATEGORIES_COLLECTION).where('slug', '==', slug).limit(1).get();
 
                         let topicId;
 
                         if (!existing.empty) {
-                            // Update existng
                             topicId = existing.docs[0].id;
                             await existing.docs[0].ref.update({
                                 lastRefreshedAt: admin.firestore.FieldValue.serverTimestamp(),
                                 confidence: idea.confidence
                             });
                         } else {
-                            // Create New
                             const newRef = await db.collection(CATEGORIES_COLLECTION).add({
                                 name: idea.name,
                                 slug,
@@ -184,7 +194,7 @@ export const discoveryService = {
                                 iconName: idea.suggestedIcon,
                                 matchingTags: topTags.split(', '),
                                 confidence: idea.confidence,
-                                thumbnailUrls: neighborPosts.slice(0, 3).map(p => p.content?.jpegUrl || p.content?.url).filter(Boolean),
+                                thumbnailUrls: neighbors.slice(0, 3).map(p => p.content?.jpegUrl || p.content?.url).filter(Boolean),
                                 status: idea.confidence > 0.85 ? 'emerging' : 'suggestion',
                                 isSystemGenerated: true,
                                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -194,13 +204,14 @@ export const discoveryService = {
                             topicsCreated++;
                         }
 
-                        // 7. Tag Posts
+                        // 6. Tag Posts
                         if (topicId) {
                             const batch = db.batch();
                             neighborsSnaps.docs.forEach(doc => {
                                 batch.update(doc.ref, { topicId });
                             });
                             await batch.commit();
+                            console.log(`   - Tagged ${neighborsSnaps.docs.length} posts for topic: ${idea.name}`);
                         }
                     }
 
@@ -223,17 +234,7 @@ export const discoveryService = {
         }
     },
 
-    // Worker Wrappers
-    async workerVectorSearch(vector: number[]): Promise<{ id: string; score: number }[]> {
-        const response = await fetch(`${config.workerUrl}/vector/search`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ vector, limit: 20 })
-        });
-        const json = await response.json() as any;
-        return json.success ? json.data.matches : [];
-    },
-
+    // Worker Wrappers (AI Only Now)
     async workerGenerateName(context: string, keywords: string): Promise<any> {
         const response = await fetch(`${config.workerUrl}/ai/generate-name`, {
             method: 'POST',
