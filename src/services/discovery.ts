@@ -227,7 +227,8 @@ export const discoveryService = {
                                 postCount: neighbors.length, // Give them an initial count so they aren't at the bottom
                                 isSystemGenerated: true,
                                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                                lastRefreshedAt: admin.firestore.FieldValue.serverTimestamp()
+                                lastRefreshedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                centroidEmbedding: toVectorValue(seed.embedding)
                             });
                             topicId = newRef.id;
                             topicsCreated++;

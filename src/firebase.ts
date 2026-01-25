@@ -20,6 +20,13 @@ if (!admin.apps.length) {
         } catch (error) {
             console.error('Error parsing FIREBASE_SERVICE_ACCOUNT_JSON:', error);
         }
+    } else {
+        // Fallback to local credentials file
+        try {
+            credential = admin.credential.applicationDefault();
+        } catch (error) {
+            console.error('Error loading default credentials:', error);
+        }
     }
 
     admin.initializeApp({

@@ -75,6 +75,8 @@ const state = {
     // CMS UI State
     postsViewMode: 'list', // 'list' or 'grid'
     selectedPosts: new Set(),
+    ideasViewMode: 'grid', // 'list' or 'grid'
+    selectedIdeas: new Set(),
     cmsSearchQueries: {
         posts: '',
         users: '',
@@ -2523,6 +2525,10 @@ async function renderIdeasPage(container) {
         <div class="page-header">
             <h1 class="page-title">Topics (Niches)</h1>
             <div class="page-actions">
+                <div class="view-toggle mr-4">
+                    <div class="view-toggle-btn ${state.ideasViewMode === 'list' ? 'active' : ''}" onclick="toggleIdeasView('list')">List</div>
+                    <div class="view-toggle-btn ${state.ideasViewMode === 'grid' ? 'active' : ''}" onclick="toggleIdeasView('grid')">Grid</div>
+                </div>
                 <button class="btn btn-ghost mr-2" id="discoveryBtn" onclick="runTopicDiscovery()">
                     ✨ Run Discovery
                 </button>
@@ -2541,8 +2547,18 @@ async function renderIdeasPage(container) {
 
         <!-- Active Ideas View -->
         <div id="activeIdeasView">
-            <div id="ideasGrid" class="ideas-grid">
-                <div class="col-span-full text-center text-muted">Loading topics...</div>
+            <!-- Bulk Actions for Ideas -->
+            <div class="card mb-4 hidden" id="ideasBulkActionsCard">
+                <div class="card-body flex items-center gap-4">
+                    <span class="text-sm"><span id="ideasSelectedCount">0</span> selected</span>
+                    <button class="btn btn-sm btn-secondary" onclick="handleBulkArchiveIdeas()">Archive</button>
+                    <button class="btn btn-sm btn-danger" onclick="handleBulkDeleteIdeas()">Delete</button>
+                    <button class="btn btn-sm btn-ghost" onclick="clearIdeaSelection()">Clear</button>
+                </div>
+            </div>
+
+            <div id="ideasContent">
+                <div class="text-center text-muted">Loading topics...</div>
             </div>
         </div>
 
@@ -2590,13 +2606,13 @@ function switchIdeaTab(tab) {
 }
 
 async function loadCmsIdeas() {
-    const grid = document.getElementById('ideasGrid');
+    const grid = document.getElementById('ideasContent');
     if (!grid) return;
 
     try {
         const data = await api('/api/cms/ideas?status=active');
         state.cmsIdeas = data.ideas;
-        renderIdeasGrid();
+        renderIdeas();
     } catch (e) {
         console.error('Failed to load ideas:', e);
         grid.innerHTML = '<div class="col-span-full text-center text-danger">Failed to load topics</div>';
@@ -2624,29 +2640,188 @@ async function loadCmsSuggestions() {
     }
 }
 
-function renderIdeasGrid() {
-    const grid = document.getElementById('ideasGrid');
-    if (!grid) return;
+function renderIdeas() {
+    const container = document.getElementById('ideasContent');
+    if (!container) return;
 
+    if (state.ideasViewMode === 'grid') {
+        renderIdeasGrid(container);
+    } else {
+        renderIdeasTable(container);
+    }
+
+    updateIdeasBulkBar();
+}
+
+function renderIdeasGrid(container) {
     if (state.cmsIdeas.length === 0) {
-        grid.innerHTML = '<div class="col-span-full text-center text-muted">No active topics found. Create one or promote an emerging one!</div>';
+        container.innerHTML = '<div class="col-span-full text-center text-muted">No active topics found. Create one or promote an emerging one!</div>';
         return;
     }
 
-    grid.innerHTML = state.cmsIdeas.map(idea => `
-        <div class="idea-card" onclick="viewIdeaDetails('${idea.id}')">
-            <div class="idea-card-header">
-                <div>
-                    <div class="font-bold">${escapeHtml(idea.name)}</div>
-                    <div class="text-xs text-muted">/${escapeHtml(idea.slug)}</div>
+    container.innerHTML = `
+        <div class="ideas-grid">
+            ${state.cmsIdeas.map(idea => {
+        const isSelected = state.selectedIdeas.has(idea.id);
+
+        return `
+            <div class="idea-card ${isSelected ? 'selected' : ''}" style="position: relative;">
+                <div class="post-grid-selection" style="position: absolute; top: 10px; right: 10px; z-index: 10;">
+                    <input type="checkbox" class="post-checkbox idea-select" data-id="${idea.id}" ${isSelected ? 'checked' : ''} onchange="toggleIdeaSelection('${idea.id}')">
+                </div>
+                <div class="idea-card-header" onclick="viewIdeaDetails('${idea.id}')">
+                    <div>
+                        <div class="font-bold">${escapeHtml(idea.name)}</div>
+                        <div class="text-xs text-muted">/${escapeHtml(idea.slug)}</div>
+                    </div>
+                </div>
+                <div class="text-xs text-muted mb-3 line-clamp-2" onclick="viewIdeaDetails('${idea.id}')">${escapeHtml(idea.description || 'No description')}</div>
+                <div class="idea-stats" onclick="viewIdeaDetails('${idea.id}')">
+                    <span>🖼️ ${idea.postCount || 0} posts</span>
                 </div>
             </div>
-            <div class="text-xs text-muted mb-3 line-clamp-2">${escapeHtml(idea.description || 'No description')}</div>
-            <div class="idea-stats">
-                <span>🖼️ ${idea.postCount || 0} posts</span>
-            </div>
+        `;
+    }).join('')}
         </div>
-    `).join('');
+    `;
+}
+
+function renderIdeasTable(container) {
+    if (state.cmsIdeas.length === 0) {
+        container.innerHTML = '<div class="text-center p-8 text-muted">No active topics found</div>';
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="table-container">
+            <table class="cms-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox" class="post-checkbox" onchange="toggleSelectAllIdeas(event)"></th>
+                        <th>Name</th>
+                        <th>Slug</th>
+                        <th>Color</th>
+                        <th>Icon</th>
+                        <th>Posts</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${state.cmsIdeas.map(idea => {
+        const isSelected = state.selectedIdeas.has(idea.id);
+        const date = idea.createdAt ? new Date(idea.createdAt) : null;
+
+        return `
+                        <tr>
+                            <td><input type="checkbox" class="post-checkbox idea-select" data-id="${idea.id}" ${isSelected ? 'checked' : ''} onchange="toggleIdeaSelection('${idea.id}')"></td>
+                            <td>
+                                <div class="font-medium">${escapeHtml(idea.name)}</div>
+                                <div class="text-xs text-muted max-w-[200px] truncate">${escapeHtml(idea.description || '')}</div>
+                            </td>
+                            <td><code>${escapeHtml(idea.slug)}</code></td>
+                            <td>
+                                <div class="flex items-center gap-2">
+                                    <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background-color:${idea.color || '#666'}"></span>
+                                    <span class="text-xs">${idea.color || 'N/A'}</span>
+                                </div>
+                            </td>
+                            <td><span class="text-xs">${idea.iconName || 'N/A'}</span></td>
+                            <td><span class="font-bold">${idea.postCount || 0}</span></td>
+                            <td class="text-xs text-muted">${date ? getRelativeTime(date) : 'Unknown'}</td>
+                            <td>
+                                <div class="flex gap-2">
+                                    <button class="btn btn-sm btn-secondary" onclick="viewIdeaDetails('${idea.id}')">Edit</button>
+                                </div>
+                            </td>
+                        </tr>
+                        `;
+    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function toggleIdeasView(view) {
+    state.ideasViewMode = view;
+    renderIdeasPage(document.getElementById('pageContainer'));
+}
+
+function toggleIdeaSelection(id) {
+    if (state.selectedIdeas.has(id)) {
+        state.selectedIdeas.delete(id);
+    } else {
+        state.selectedIdeas.add(id);
+    }
+    updateIdeasBulkBar();
+}
+
+function toggleSelectAllIdeas(event) {
+    const checked = event.target.checked;
+    if (checked) {
+        state.cmsIdeas.forEach(i => state.selectedIdeas.add(i.id));
+    } else {
+        state.selectedIdeas.clear();
+    }
+    renderIdeas();
+}
+
+function clearIdeaSelection() {
+    state.selectedIdeas.clear();
+    updateIdeasBulkBar();
+    renderIdeas();
+}
+
+function updateIdeasBulkBar() {
+    const card = document.getElementById('ideasBulkActionsCard');
+    const count = document.getElementById('ideasSelectedCount');
+
+    if (card && count) {
+        const size = state.selectedIdeas.size;
+        count.textContent = size;
+        if (size > 0) {
+            card.classList.remove('hidden');
+        } else {
+            card.classList.add('hidden');
+        }
+    }
+}
+
+async function handleBulkArchiveIdeas() {
+    const ids = Array.from(state.selectedIdeas);
+    if (!confirm(`Archive ${ids.length} topics? They will be hidden from the main list.`)) return;
+
+    try {
+        await api('/api/cms/ideas/bulk/archive', {
+            method: 'POST',
+            body: JSON.stringify({ ids }),
+        });
+        showToast(`${ids.length} topics archived`, 'success');
+        clearIdeaSelection();
+        loadCmsIdeas();
+    } catch (e) {
+        console.error('Bulk archive failed:', e);
+        showToast('Bulk archive failed', 'error');
+    }
+}
+
+async function handleBulkDeleteIdeas() {
+    const ids = Array.from(state.selectedIdeas);
+    if (!confirm(`DELETE ${ids.length} topics? This is permanent!`)) return;
+
+    try {
+        await api('/api/cms/ideas/bulk/delete', {
+            method: 'POST',
+            body: JSON.stringify({ ids }),
+        });
+        showToast(`${ids.length} topics deleted`, 'success');
+        clearIdeaSelection();
+        loadCmsIdeas();
+    } catch (e) {
+        console.error('Bulk delete failed:', e);
+        showToast('Bulk delete failed', 'error');
+    }
 }
 
 function renderSuggestionsList() {

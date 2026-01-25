@@ -40,11 +40,11 @@ ${context}
 **Top Recurring Keywords**: ${keywords}
 
 Task:
-1. Identify the specific subject matter based on the descriptions AND the top keywords.
-2. Generate a name using the "Pinterest Strategy":
+1. Identify the core aesthetic, mood, or design concept based on the descriptions AND keywords.
+2. Generate a name using the "Vibe & Aesthetic Strategy":
    - MUST be 2-3 words.
-   - MUST be literal and descriptive (e.g. "Dark Mode UI", "Neon Cyberpunk Art").
-   - AVOID generic marketing fluff.
+   - Focus on visual styles, moods, and concepts (e.g. "Dreamy Lo-Fi", "Cyberpunk Noir", "Minimalist Zen").
+   - AVOID purely functional descriptions (e.g. instead of "Wooden Chair Designs", use "Organic Modern Living").
 3. Write a short description.
 4. Suggest a best-fit SF Symbol icon name.
 5. Suggest a hex color code.

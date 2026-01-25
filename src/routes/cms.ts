@@ -1033,6 +1033,60 @@ router.delete('/ideas/:id', async (req: Request, res: Response) => {
     }
 });
 
+/**
+ * POST /api/cms/ideas/bulk/archive - Archive multiple ideas
+ */
+router.post('/ideas/bulk/archive', async (req: Request, res: Response) => {
+    try {
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'Topic IDs are required' });
+        }
+
+        const batch = db.batch();
+        const updatedAt = admin.firestore.FieldValue.serverTimestamp();
+
+        ids.forEach(id => {
+            const ref = db.collection('categories').doc(id);
+            batch.update(ref, {
+                status: 'archived',
+                archivedAt: updatedAt,
+                archivedBy: req.user?.uid
+            });
+        });
+
+        await batch.commit();
+        res.json({ success: true, count: ids.length });
+    } catch (error) {
+        console.error('Error bulk archiving ideas:', error);
+        res.status(500).json({ error: 'Failed to bulk archive ideas' });
+    }
+});
+
+/**
+ * POST /api/cms/ideas/bulk/delete - Delete multiple ideas
+ */
+router.post('/ideas/bulk/delete', async (req: Request, res: Response) => {
+    try {
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'Topic IDs are required' });
+        }
+
+        const batch = db.batch();
+
+        ids.forEach(id => {
+            batch.delete(db.collection('categories').doc(id));
+        });
+
+        await batch.commit();
+        res.json({ success: true, count: ids.length });
+    } catch (error) {
+        console.error('Error bulk deleting ideas:', error);
+        res.status(500).json({ error: 'Failed to bulk delete ideas' });
+    }
+});
+
 // ============================================
 // REPORTS MANAGEMENT (MODERATION)
 // ============================================

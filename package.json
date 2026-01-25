@@ -9,7 +9,11 @@
         "start": "node dist/index.js",
         "dev": "tsx watch src/index.ts",
         "scrape:once": "tsx src/cli.ts --once",
-        "migrate:embeddings": "tsx src/scripts/migrate-embeddings.ts"
+        "migrate:embeddings": "tsx src/scripts/migrate-embeddings.ts",
+        "reset:vertex": "tsx src/scripts/reset-embeddings.ts",
+        "debug:ideas": "tsx src/scripts/debug-ideas.ts",
+        "backfill:topics": "tsx src/scripts/backfill-topic-embeddings.ts",
+        "remove:pinterest": "tsx src/scripts/remove-pinterest-tags.ts"
     },
     "dependencies": {
         "@google-cloud/aiplatform": "^6.1.0",
