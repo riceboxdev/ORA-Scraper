@@ -75,6 +75,13 @@ export async function createPost(params: CreatePostParams): Promise<string> {
         attribution,
     };
 
+    // clean undefined values
+    Object.keys(postData).forEach(key => {
+        if ((postData as any)[key] === undefined) {
+            delete (postData as any)[key];
+        }
+    });
+
     await postRef.set(postData);
     console.log(`  Created post: ${postId}`);
 
