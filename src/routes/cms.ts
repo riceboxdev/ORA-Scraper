@@ -328,6 +328,37 @@ router.post('/posts/:id/moderate', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/cms/posts/:id/generate-tags - Generate tags for a post using AI
+ */
+router.post('/posts/:id/generate-tags', async (req: Request, res: Response) => {
+    try {
+        const doc = await db.collection('userPosts').doc(req.params.id).get();
+        if (!doc.exists) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+
+        const data = doc.data()!;
+        const imageUrl = data.content?.jpegUrl || data.content?.url;
+
+        if (!imageUrl) {
+            return res.status(400).json({ error: 'Post has no image URL' });
+        }
+
+        const { aiService } = await import('../services/ai.js');
+        const tags = await aiService.generateTagsForImage(imageUrl, data.description);
+
+        if (!tags || tags.length === 0) {
+            return res.status(500).json({ error: 'Failed to generate tags' });
+        }
+
+        res.json({ tags });
+    } catch (error) {
+        console.error('Error generating tags:', error);
+        res.status(500).json({ error: 'Failed to generate tags' });
+    }
+});
+
+/**
  * DELETE /api/cms/posts/:id - Delete post and related data
  */
 router.delete('/posts/:id', async (req: Request, res: Response) => {

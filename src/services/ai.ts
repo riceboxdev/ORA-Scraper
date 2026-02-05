@@ -75,5 +75,55 @@ Return strict JSON:
             console.error('[AI] Gemini generation failed:', error);
             return null;
         }
+    },
+
+    /**
+     * Generate tags for an image based on its visual content and description
+     */
+    async generateTagsForImage(imageUrl: string, description?: string) {
+        const prompt = `Analyze this image and generate relevant tags for a visual discovery app.
+
+${description ? `The image has this description: "${description}"` : ''}
+
+Task:
+1. Analyze the visual content, style, mood, colors, and subjects in the image.
+2. Generate 5-10 relevant tags that would help users discover this content.
+3. Tags should be:
+   - Single words or short phrases (2-3 words max)
+   - Lowercase
+   - Cover: aesthetic/style, mood, colors, subjects, themes
+   - Avoid generic tags like "image", "photo", "picture"
+
+Return strict JSON:
+{
+  "tags": ["tag1", "tag2", "tag3", ...]
+}`;
+
+        try {
+            const result = await model.generateContent({
+                contents: [{
+                    role: 'user',
+                    parts: [
+                        { text: prompt },
+                        {
+                            fileData: {
+                                mimeType: 'image/jpeg',
+                                fileUri: imageUrl
+                            }
+                        }
+                    ]
+                }]
+            });
+            const response = result.response;
+            const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            if (!text) return null;
+
+            const parsed = JSON.parse(text);
+            return parsed.tags || [];
+        } catch (error) {
+            console.error('[AI] Tag generation failed:', error);
+            return null;
+        }
     }
 };

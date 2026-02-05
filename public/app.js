@@ -74,6 +74,7 @@ const state = {
 
     // CMS UI State
     postsViewMode: 'list', // 'list' or 'grid'
+    postsPerPage: 50, // 20, 50, or 100
     selectedPosts: new Set(),
     ideasViewMode: 'grid', // 'list' or 'grid'
     selectedIdeas: new Set(),
@@ -1628,6 +1629,11 @@ async function renderPostsPage(container) {
                     <div class="view-toggle-btn ${state.postsViewMode === 'list' ? 'active' : ''}" onclick="togglePostsView('list')">List</div>
                     <div class="view-toggle-btn ${state.postsViewMode === 'grid' ? 'active' : ''}" onclick="togglePostsView('grid')">Grid</div>
                 </div>
+                <select class="form-select mr-2" id="postsPerPageSelect" onchange="handlePostsPerPageChange(event)" style="width: auto;">
+                    <option value="20" ${state.postsPerPage === 20 ? 'selected' : ''}>20 per page</option>
+                    <option value="50" ${state.postsPerPage === 50 ? 'selected' : ''}>50 per page</option>
+                    <option value="100" ${state.postsPerPage === 100 ? 'selected' : ''}>100 per page</option>
+                </select>
                 <button class="btn btn-secondary" onclick="loadCmsPosts()">🔄 Refresh</button>
             </div>
         </div>
@@ -1683,7 +1689,7 @@ async function loadCmsPosts(append = false) {
 
     try {
         const params = new URLSearchParams({
-            limit: 20,
+            limit: state.postsPerPage,
             status: state.cmsFilters.status,
             moderationStatus: state.cmsFilters.moderationStatus,
             search: state.cmsSearchQueries.posts,
@@ -1777,6 +1783,11 @@ function handlePostsFilterChange() {
     loadCmsPosts();
 }
 
+function handlePostsPerPageChange(event) {
+    state.postsPerPage = parseInt(event.target.value, 10);
+    loadCmsPosts();
+}
+
 async function viewPostDetails(id) {
     try {
         const post = await api(`/api/cms/posts/${id}`);
@@ -1816,6 +1827,19 @@ async function viewPostDetails(id) {
                         </div>
                     </div>
                     <div class="mb-4">
+                        <h4 class="text-muted font-medium uppercase text-xs mb-2">Tags</h4>
+                        <div class="flex gap-2 mb-2">
+                            <input type="text" class="form-input" id="updatePostTags" 
+                                   style="flex: 1;" 
+                                   placeholder="tag1, tag2, tag3..." 
+                                   value="${(post.tags || []).join(', ')}">
+                            <button class="btn btn-secondary" onclick="generatePostTags('${post.id}')" id="generateTagsBtn">
+                                ✨ Generate
+                            </button>
+                        </div>
+                        <div class="text-xs text-muted">Comma-separated tags</div>
+                    </div>
+                    <div class="mb-4">
                         <h4 class="text-muted font-medium uppercase text-xs mb-2">Moderation Status</h4>
                         <select id="updateModStatus" class="form-select w-full">
                             <option value="pending" ${post.moderationStatus === 'pending' ? 'selected' : ''}>Awaiting</option>
@@ -1846,17 +1870,42 @@ function closePostModal() {
 
 async function updatePostStatus(id) {
     const status = document.getElementById('updateModStatus').value;
+    const tagsInput = document.getElementById('updatePostTags').value;
+    const tags = tagsInput.split(',').map(t => t.trim()).filter(t => t.length > 0);
     try {
         await api(`/api/cms/posts/${id}`, {
             method: 'PUT',
-            body: JSON.stringify({ moderationStatus: status }),
+            body: JSON.stringify({ moderationStatus: status, tags }),
         });
-        showToast('Post status updated', 'success');
+        showToast('Post updated', 'success');
         closePostModal();
         loadCmsPosts();
     } catch (e) {
         console.error('Failed to update post:', e);
         showToast('Failed to update post', 'error');
+    }
+}
+
+async function generatePostTags(postId) {
+    const btn = document.getElementById('generateTagsBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '⏳ Generating...';
+    btn.disabled = true;
+
+    try {
+        const result = await api(`/api/cms/posts/${postId}/generate-tags`, { method: 'POST' });
+        if (result.tags && result.tags.length > 0) {
+            document.getElementById('updatePostTags').value = result.tags.join(', ');
+            showToast('Tags generated! Save to apply.', 'success');
+        } else {
+            showToast('Could not generate tags', 'warning');
+        }
+    } catch (e) {
+        console.error('Failed to generate tags:', e);
+        showToast('Failed to generate tags', 'error');
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
     }
 }
 
