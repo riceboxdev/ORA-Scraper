@@ -329,7 +329,8 @@ function handleRoute() {
         '/posts': 'posts',
         '/users': 'users',
         '/boards': 'boards',
-        '/ideas': 'ideas',
+        '/ideas': 'autotag',
+        '/autotag': 'autotag',
         '/analytics': 'analytics',
         '/settings': 'settings',
     };
@@ -375,8 +376,8 @@ function renderPage(page) {
         case 'boards':
             renderBoardsPage(container);
             break;
-        case 'ideas':
-            renderIdeasPage(container);
+        case 'autotag':
+            renderAutoTagPage(container);
             break;
         case 'analytics':
             renderAnalyticsPage(container);
@@ -2566,12 +2567,316 @@ async function deleteCmsBoard(id) {
 }
 
 // ============================================
+// CMS: AUTO-TAG PAGE
+// ============================================
+
+// Auto-tag state
+const autoTagState = {
+    batchSize: 10,
+    delayMs: 500,
+    isGenerating: false,
+    jobs: [], // { postId, post, suggestedTags, acceptedTags, rejectedTags }
+};
+
+async function renderAutoTagPage(container) {
+    container.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Auto-Tag Posts</h1>
+            <div class="page-actions">
+                <button class="btn btn-secondary" onclick="clearAutoTagJobs()">Clear All</button>
+            </div>
+        </div>
+
+        <!-- Rate Controls -->
+        <div class="card mb-6">
+            <div class="card-header">
+                <span class="card-title">⚙️ Generation Settings</span>
+            </div>
+            <div class="card-body">
+                <div class="flex gap-8" style="flex-wrap: wrap;">
+                    <div class="form-group" style="flex: 1; min-width: 200px;">
+                        <label class="form-label">Batch Size</label>
+                        <div class="flex items-center gap-4">
+                            <input type="range" id="autoTagBatchSize" min="1" max="20" value="${autoTagState.batchSize}" 
+                                oninput="autoTagState.batchSize = this.value; document.getElementById('batchSizeValue').textContent = this.value"
+                                style="flex: 1;">
+                            <span id="batchSizeValue" class="font-bold" style="min-width: 30px;">${autoTagState.batchSize}</span>
+                        </div>
+                        <div class="text-xs text-muted mt-1">Number of posts to process at once</div>
+                    </div>
+                    <div class="form-group" style="flex: 1; min-width: 200px;">
+                        <label class="form-label">Delay Between Calls (ms)</label>
+                        <div class="flex items-center gap-4">
+                            <input type="range" id="autoTagDelay" min="0" max="5000" step="100" value="${autoTagState.delayMs}" 
+                                oninput="autoTagState.delayMs = this.value; document.getElementById('delayValue').textContent = this.value"
+                                style="flex: 1;">
+                            <span id="delayValue" class="font-bold" style="min-width: 50px;">${autoTagState.delayMs}</span>
+                        </div>
+                        <div class="text-xs text-muted mt-1">Delay between API calls to avoid rate limits</div>
+                    </div>
+                </div>
+                <div class="mt-4 pt-4 border-t border-white/10">
+                    <button class="btn btn-primary" id="generateTagsBtn" onclick="generateAutoTags()">
+                        ✨ Generate Tags for Batch
+                    </button>
+                    <span id="autoTagProgress" class="ml-4 text-sm text-muted"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pending Jobs -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">📋 Pending Tag Approvals</span>
+                <div class="flex gap-2">
+                    <button class="btn btn-sm btn-secondary" onclick="acceptAllAutoTags()">Accept All</button>
+                    <button class="btn btn-sm btn-success" onclick="applyAutoTags()" id="applyTagsBtn" disabled>
+                        💾 Apply Approved Tags
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="autoTagJobsList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🏷️</div>
+                        <div class="empty-state-title">No pending tags</div>
+                        <div class="empty-state-description">Click "Generate Tags" to analyze posts and suggest tags</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function generateAutoTags() {
+    const btn = document.getElementById('generateTagsBtn');
+    const progress = document.getElementById('autoTagProgress');
+
+    if (autoTagState.isGenerating) return;
+    autoTagState.isGenerating = true;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> Generating...';
+
+    try {
+        // Fetch posts that need tags
+        const result = await api('/api/cms/posts/generate-tags', {
+            method: 'POST',
+            body: JSON.stringify({
+                limit: autoTagState.batchSize,
+                delayMs: autoTagState.delayMs
+            })
+        });
+
+        if (result.jobs && result.jobs.length > 0) {
+            autoTagState.jobs = [...autoTagState.jobs, ...result.jobs.map(j => ({
+                postId: j.postId,
+                post: j.post,
+                suggestedTags: j.suggestedTags || [],
+                acceptedTags: new Set(),
+                rejectedTags: new Set()
+            }))];
+            renderAutoTagJobs();
+            showToast(`Generated tags for ${result.jobs.length} posts`, 'success');
+        } else {
+            showToast('No posts found that need tagging', 'info');
+        }
+    } catch (e) {
+        console.error('Failed to generate tags:', e);
+        showToast('Failed to generate tags: ' + e.message, 'error');
+    } finally {
+        autoTagState.isGenerating = false;
+        btn.disabled = false;
+        btn.innerHTML = '✨ Generate Tags for Batch';
+        progress.textContent = '';
+    }
+}
+
+function renderAutoTagJobs() {
+    const container = document.getElementById('autoTagJobsList');
+    const applyBtn = document.getElementById('applyTagsBtn');
+
+    if (!container) return;
+
+    if (autoTagState.jobs.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">🏷️</div>
+                <div class="empty-state-title">No pending tags</div>
+                <div class="empty-state-description">Click "Generate Tags" to analyze posts and suggest tags</div>
+            </div>
+        `;
+        if (applyBtn) applyBtn.disabled = true;
+        return;
+    }
+
+    // Enable apply button if any job has accepted tags
+    const hasAccepted = autoTagState.jobs.some(j => j.acceptedTags.size > 0);
+    if (applyBtn) applyBtn.disabled = !hasAccepted;
+
+    container.innerHTML = autoTagState.jobs.map((job, idx) => {
+        const thumbUrl = job.post?.content?.thumbnailUrl || job.post?.content?.url || '';
+        const currentTags = job.post?.tags || [];
+
+        return `
+            <div class="autotag-job card mb-4" style="padding: 1rem; background: rgba(255,255,255,0.03);" id="autotag-job-${idx}">
+                <div class="flex gap-4" style="flex-wrap: wrap;">
+                    <!-- Thumbnail -->
+                    <div style="flex-shrink: 0; width: 120px;">
+                        <img src="${escapeHtml(thumbUrl)}" 
+                            style="width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: rgba(0,0,0,0.3);"
+                            loading="lazy">
+                    </div>
+                    
+                    <!-- Content -->
+                    <div style="flex: 1; min-width: 200px;">
+                        <div class="text-xs text-muted mb-1">Post ID: ${job.postId}</div>
+                        <div class="text-xs text-muted mb-3">Current tags: ${currentTags.length > 0 ? currentTags.join(', ') : 'None'}</div>
+                        
+                        <div class="mb-2 font-medium text-sm">Suggested Tags:</div>
+                        <div class="flex flex-wrap gap-2" id="suggested-tags-${idx}">
+                            ${job.suggestedTags.map(tag => {
+                                const isAccepted = job.acceptedTags.has(tag);
+                                const isRejected = job.rejectedTags.has(tag);
+                                const stateClass = isAccepted ? 'badge-success' : isRejected ? 'badge-danger' : 'badge-secondary';
+                                return `
+                                    <span class="badge ${stateClass}" style="cursor: pointer; user-select: none;" 
+                                        onclick="toggleAutoTag(${idx}, '${escapeHtml(tag)}')"
+                                        title="Click to toggle">
+                                        ${escapeHtml(tag)}
+                                        ${isAccepted ? ' ✓' : isRejected ? ' ✗' : ''}
+                                    </span>
+                                `;
+                            }).join('')}
+                        </div>
+                        
+                        <div class="flex gap-2 mt-3">
+                            <button class="btn btn-sm btn-secondary" onclick="acceptAllJobTags(${idx})">Accept All</button>
+                            <button class="btn btn-sm btn-ghost" onclick="rejectAllJobTags(${idx})">Reject All</button>
+                            <button class="btn btn-sm btn-ghost text-danger" onclick="removeAutoTagJob(${idx})" style="margin-left: auto;">Remove</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function toggleAutoTag(jobIdx, tag) {
+    const job = autoTagState.jobs[jobIdx];
+    if (!job) return;
+    
+    if (job.acceptedTags.has(tag)) {
+        job.acceptedTags.delete(tag);
+        job.rejectedTags.add(tag);
+    } else if (job.rejectedTags.has(tag)) {
+        job.rejectedTags.delete(tag);
+    } else {
+        job.acceptedTags.add(tag);
+    }
+    
+    renderAutoTagJobs();
+}
+
+function acceptAllJobTags(jobIdx) {
+    const job = autoTagState.jobs[jobIdx];
+    if (!job) return;
+    
+    job.suggestedTags.forEach(tag => {
+        job.acceptedTags.add(tag);
+        job.rejectedTags.delete(tag);
+    });
+    
+    renderAutoTagJobs();
+}
+
+function rejectAllJobTags(jobIdx) {
+    const job = autoTagState.jobs[jobIdx];
+    if (!job) return;
+    
+    job.suggestedTags.forEach(tag => {
+        job.rejectedTags.add(tag);
+        job.acceptedTags.delete(tag);
+    });
+    
+    renderAutoTagJobs();
+}
+
+function removeAutoTagJob(jobIdx) {
+    autoTagState.jobs.splice(jobIdx, 1);
+    renderAutoTagJobs();
+}
+
+function acceptAllAutoTags() {
+    autoTagState.jobs.forEach(job => {
+        job.suggestedTags.forEach(tag => {
+            job.acceptedTags.add(tag);
+            job.rejectedTags.delete(tag);
+        });
+    });
+    renderAutoTagJobs();
+}
+
+function clearAutoTagJobs() {
+    autoTagState.jobs = [];
+    renderAutoTagJobs();
+}
+
+async function applyAutoTags() {
+    const btn = document.getElementById('applyTagsBtn');
+    const jobsToApply = autoTagState.jobs.filter(j => j.acceptedTags.size > 0);
+    
+    if (jobsToApply.length === 0) {
+        showToast('No accepted tags to apply', 'warning');
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> Applying...';
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const job of jobsToApply) {
+        try {
+            const currentTags = job.post?.tags || [];
+            const newTags = [...new Set([...currentTags, ...Array.from(job.acceptedTags)])];
+            
+            await api(`/api/cms/posts/${job.postId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ tags: newTags })
+            });
+            
+            successCount++;
+            
+            // Remove from jobs list
+            const idx = autoTagState.jobs.indexOf(job);
+            if (idx > -1) autoTagState.jobs.splice(idx, 1);
+        } catch (e) {
+            console.error(`Failed to update post ${job.postId}:`, e);
+            errorCount++;
+        }
+    }
+    
+    renderAutoTagJobs();
+    btn.disabled = false;
+    btn.innerHTML = '💾 Apply Approved Tags';
+    
+    if (successCount > 0) {
+        showToast(`Applied tags to ${successCount} posts`, 'success');
+    }
+    if (errorCount > 0) {
+        showToast(`Failed to update ${errorCount} posts`, 'error');
+    }
+}
+
+// ============================================
 // CMS: IDEAS PAGE
 // ============================================
 
 async function renderIdeasPage(container) {
     container.innerHTML = `
-        <div class="page-header">
+            < div class="page-header" >
             <h1 class="page-title">Topics (Niches)</h1>
             <div class="page-actions">
                 <div class="view-toggle mr-4">
@@ -2583,7 +2888,7 @@ async function renderIdeasPage(container) {
                 </button>
                 <button class="btn btn-primary" onclick="openAddIdeaModal()">+ Add Topic</button>
             </div>
-        </div>
+        </div >
 
         <div class="tabs mb-6 border-b border-white/10 flex gap-6">
             <button class="tab active" id="tab-active" onclick="switchIdeaTab('active')">
@@ -2594,7 +2899,7 @@ async function renderIdeasPage(container) {
             </button>
         </div>
 
-        <!-- Active Ideas View -->
+        <!--Active Ideas View-- >
         <div id="activeIdeasView">
             <!-- Bulk Actions for Ideas -->
             <div class="card mb-4 hidden" id="ideasBulkActionsCard">
@@ -2611,22 +2916,22 @@ async function renderIdeasPage(container) {
             </div>
         </div>
 
-        <!-- Suggestions View -->
-        <div id="suggestionsView" style="display: none;">
-            <div class="flex justify-end mb-4" style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-                <button id="btn-generate-suggestions" class="btn btn-secondary btn-sm" onclick="generateSuggestions()">
-                    ✨ Run Topic Discovery
-                </button>
-            </div>
-            <div class="alert alert-info mb-4" style="font-size: 13px;">
-                <i class="ph ph-info"></i>
+        <!--Suggestions View-- >
+            <div id="suggestionsView" style="display: none;">
+                <div class="flex justify-end mb-4" style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
+                    <button id="btn-generate-suggestions" class="btn btn-secondary btn-sm" onclick="generateSuggestions()">
+                        ✨ Run Topic Discovery
+                    </button>
+                </div>
+                <div class="alert alert-info mb-4" style="font-size: 13px;">
+                    <i class="ph ph-info"></i>
                 The system automatically creates "Emerging" topics when it finds high-confidence clusters (>85%). Review and promote them here.
+                </div>
+                <div id="suggestionsList" class="flex flex-col gap-4">
+                    <div class="text-center text-muted">Loading emerging topics...</div>
+                </div>
             </div>
-            <div id="suggestionsList" class="flex flex-col gap-4">
-                <div class="text-center text-muted">Loading emerging topics...</div>
-            </div>
-        </div>
-    `;
+        `;
 
     // Load initial data
     loadCmsIdeas();
@@ -2709,11 +3014,12 @@ function renderIdeasGrid(container) {
     }
 
     container.innerHTML = `
-        <div class="ideas-grid">
-            ${state.cmsIdeas.map(idea => {
-        const isSelected = state.selectedIdeas.has(idea.id);
+            < div class="ideas-grid" >
+                ${
+                    state.cmsIdeas.map(idea => {
+                        const isSelected = state.selectedIdeas.has(idea.id);
 
-        return `
+                        return `
             <div class="idea-card ${isSelected ? 'selected' : ''}" style="position: relative;">
                 <div class="post-grid-selection" style="position: absolute; top: 10px; right: 10px; z-index: 10;">
                     <input type="checkbox" class="post-checkbox idea-select" data-id="${idea.id}" ${isSelected ? 'checked' : ''} onchange="toggleIdeaSelection('${idea.id}')">
@@ -2730,9 +3036,10 @@ function renderIdeasGrid(container) {
                 </div>
             </div>
         `;
-    }).join('')}
-        </div>
-    `;
+                    }).join('')
+        }
+        </div >
+            `;
 }
 
 function renderIdeasTable(container) {
@@ -2742,26 +3049,26 @@ function renderIdeasTable(container) {
     }
 
     container.innerHTML = `
-        <div class="table-container">
-            <table class="cms-table">
-                <thead>
-                    <tr>
-                        <th style="width: 40px;"><input type="checkbox" class="post-checkbox" onchange="toggleSelectAllIdeas(event)"></th>
-                        <th>Name</th>
-                        <th>Slug</th>
-                        <th>Color</th>
-                        <th>Icon</th>
-                        <th>Posts</th>
-                        <th>Created</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${state.cmsIdeas.map(idea => {
-        const isSelected = state.selectedIdeas.has(idea.id);
-        const date = idea.createdAt ? new Date(idea.createdAt) : null;
+            < div class="table-container" >
+                <table class="cms-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;"><input type="checkbox" class="post-checkbox" onchange="toggleSelectAllIdeas(event)"></th>
+                            <th>Name</th>
+                            <th>Slug</th>
+                            <th>Color</th>
+                            <th>Icon</th>
+                            <th>Posts</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${state.cmsIdeas.map(idea => {
+                            const isSelected = state.selectedIdeas.has(idea.id);
+                            const date = idea.createdAt ? new Date(idea.createdAt) : null;
 
-        return `
+                            return `
                         <tr>
                             <td><input type="checkbox" class="post-checkbox idea-select" data-id="${idea.id}" ${isSelected ? 'checked' : ''} onchange="toggleIdeaSelection('${idea.id}')"></td>
                             <td>
@@ -2785,11 +3092,11 @@ function renderIdeasTable(container) {
                             </td>
                         </tr>
                         `;
-    }).join('')}
-                </tbody>
-            </table>
-        </div>
-    `;
+                        }).join('')}
+                    </tbody>
+                </table>
+        </div >
+            `;
 }
 
 function toggleIdeasView(view) {
@@ -2839,14 +3146,14 @@ function updateIdeasBulkBar() {
 
 async function handleBulkArchiveIdeas() {
     const ids = Array.from(state.selectedIdeas);
-    if (!confirm(`Archive ${ids.length} topics? They will be hidden from the main list.`)) return;
+    if (!confirm(`Archive ${ ids.length } topics ? They will be hidden from the main list.`)) return;
 
     try {
         await api('/api/cms/ideas/bulk/archive', {
             method: 'POST',
             body: JSON.stringify({ ids }),
         });
-        showToast(`${ids.length} topics archived`, 'success');
+        showToast(`${ ids.length } topics archived`, 'success');
         clearIdeaSelection();
         loadCmsIdeas();
     } catch (e) {
@@ -2857,14 +3164,14 @@ async function handleBulkArchiveIdeas() {
 
 async function handleBulkDeleteIdeas() {
     const ids = Array.from(state.selectedIdeas);
-    if (!confirm(`DELETE ${ids.length} topics? This is permanent!`)) return;
+    if (!confirm(`DELETE ${ ids.length } topics ? This is permanent!`)) return;
 
     try {
         await api('/api/cms/ideas/bulk/delete', {
             method: 'POST',
             body: JSON.stringify({ ids }),
         });
-        showToast(`${ids.length} topics deleted`, 'success');
+        showToast(`${ ids.length } topics deleted`, 'success');
         clearIdeaSelection();
         loadCmsIdeas();
     } catch (e) {
@@ -2879,12 +3186,12 @@ function renderSuggestionsList() {
 
     if (state.cmsSuggestions.length === 0) {
         list.innerHTML = `
-            <div class="empty-state">
+            < div class="empty-state" >
                 <div class="empty-state-icon">✨</div>
                 <div class="empty-state-title">No emerging topics</div>
                 <div class="empty-state-description">Run a discovery job to find new clusters.</div>
-            </div>
-        `;
+            </div >
+            `;
         return;
     }
 
@@ -2892,53 +3199,53 @@ function renderSuggestionsList() {
         const thumbnails = s.thumbnailUrls || [];
 
         return `
-        <div class="card p-4" id="suggestion-${s.id}" style="padding: 1.5rem;">
-            <div class="flex" style="gap: 1.5rem;">
-                <!-- Visuals -->
-                <div style="flex-shrink: 0; width: 200px;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; border-radius: 8px; overflow: hidden; aspect-ratio: 16/9; background: rgba(0,0,0,0.2);">
-                        ${thumbnails.slice(0, 4).map(url => `
+            < div class="card p-4" id = "suggestion-${s.id}" style = "padding: 1.5rem;" >
+                <div class="flex" style="gap: 1.5rem;">
+                    <!-- Visuals -->
+                    <div style="flex-shrink: 0; width: 200px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; border-radius: 8px; overflow: hidden; aspect-ratio: 16/9; background: rgba(0,0,0,0.2);">
+                            ${thumbnails.slice(0, 4).map(url => `
                             <div style="background-image: url('${escapeHtml(url)}'); background-size: cover; background-position: center; height: 100%; width: 100%;"></div>
                         `).join('')}
-                        ${thumbnails.length === 0 ? '<div style="grid-column: span 2; display: flex; align-items: center; justify-content: center; color: #71717a; font-size: 12px; height: 100%;">No images</div>' : ''}
+                            ${thumbnails.length === 0 ? '<div style="grid-column: span 2; display: flex; align-items: center; justify-content: center; color: #71717a; font-size: 12px; height: 100%;">No images</div>' : ''}
+                        </div>
                     </div>
-                </div>
 
-                <!-- Content -->
-                <div style="flex: 1; min-width: 0;">
-                    <div class="flex justify-between items-start mb-2" style="margin-bottom: 0.5rem; justify-content: space-between; align-items: flex-start;">
-                        <div style="flex: 1; margin-right: 1rem; min-width: 0;">
-                            <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                                <h3 class="font-bold" style="font-size: 1.125rem; font-weight: 700; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">${escapeHtml(s.name)}</h3>
-                                <span class="badge badge-secondary" style="white-space: nowrap;">${Math.round(s.confidence * 100)}% Match</span>
+                    <!-- Content -->
+                    <div style="flex: 1; min-width: 0;">
+                        <div class="flex justify-between items-start mb-2" style="margin-bottom: 0.5rem; justify-content: space-between; align-items: flex-start;">
+                            <div style="flex: 1; margin-right: 1rem; min-width: 0;">
+                                <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                    <h3 class="font-bold" style="font-size: 1.125rem; font-weight: 700; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">${escapeHtml(s.name)}</h3>
+                                    <span class="badge badge-secondary" style="white-space: nowrap;">${Math.round(s.confidence * 100)}% Match</span>
+                                </div>
+                                <p class="text-muted mt-1" style="font-size: 0.875rem; margin-top: 0.25rem; line-height: 1.4; color: #a1a1aa;">${escapeHtml(s.description)}</p>
                             </div>
-                            <p class="text-muted mt-1" style="font-size: 0.875rem; margin-top: 0.25rem; line-height: 1.4; color: #a1a1aa;">${escapeHtml(s.description)}</p>
+                            <div class="flex gap-2" style="display: flex; gap: 0.5rem; flex-shrink: 0;">
+                                <button class="btn btn-sm btn-secondary" onclick="archiveTopic('${s.id}')">Archive</button>
+                                <button class="btn btn-sm btn-primary" onclick="promoteTopic('${s.id}')">Promote to Active</button>
+                            </div>
                         </div>
-                        <div class="flex gap-2" style="display: flex; gap: 0.5rem; flex-shrink: 0;">
-                            <button class="btn btn-sm btn-secondary" onclick="archiveTopic('${s.id}')">Archive</button>
-                            <button class="btn btn-sm btn-primary" onclick="promoteTopic('${s.id}')">Promote to Active</button>
-                        </div>
-                    </div>
 
-                    <div class="flex gap-4 text-xs mt-3 p-3 rounded-lg border" style="display: flex; gap: 1rem; margin-top: 0.75rem; padding: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 0.5rem; font-size: 0.75rem;">
-                        <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
-                            <span class="text-muted" style="color: #71717a;">Color:</span>
-                            <span style="width: 1rem; height: 1rem; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.2); background: ${s.color || s.suggestedColor}"></span>
-                            <code style="font-family: monospace;">${s.color || s.suggestedColor}</code>
-                        </div>
-                        <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
-                            <span class="text-muted" style="color: #71717a;">Icon:</span>
-                            <code style="font-family: monospace;">${s.iconName || s.suggestedIcon}</code>
-                        </div>
-                        <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
-                            <span class="text-muted" style="color: #71717a;">Tags:</span>
-                            <span class="italic" style="font-style: italic; color: #a1a1aa;">${(s.matchingTags || []).slice(0, 5).join(', ')}</span>
+                        <div class="flex gap-4 text-xs mt-3 p-3 rounded-lg border" style="display: flex; gap: 1rem; margin-top: 0.75rem; padding: 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 0.5rem; font-size: 0.75rem;">
+                            <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="text-muted" style="color: #71717a;">Color:</span>
+                                <span style="width: 1rem; height: 1rem; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.2); background: ${s.color || s.suggestedColor}"></span>
+                                <code style="font-family: monospace;">${s.color || s.suggestedColor}</code>
+                            </div>
+                            <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="text-muted" style="color: #71717a;">Icon:</span>
+                                <code style="font-family: monospace;">${s.iconName || s.suggestedIcon}</code>
+                            </div>
+                            <div class="flex items-center gap-2" style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="text-muted" style="color: #71717a;">Tags:</span>
+                                <span class="italic" style="font-style: italic; color: #a1a1aa;">${(s.matchingTags || []).slice(0, 5).join(', ')}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-        `;
+        </div >
+            `;
     }).join('');
 }
 
@@ -2976,7 +3283,7 @@ async function generateSuggestions() {
 }
 
 async function promoteTopic(id) {
-    const card = document.getElementById(`suggestion-${id}`);
+    const card = document.getElementById(`suggestion - ${ id } `);
     const btn = card?.querySelector('.btn-primary');
     if (btn) {
         btn.textContent = 'Approving...';
@@ -2984,28 +3291,28 @@ async function promoteTopic(id) {
     }
 
     try {
-        await api(`/api/cms/topics/${id}/promote`, { method: 'POST' });
-        showToast('Topic promoted to Active!', 'success');
+        await api(`/ api / cms / topics / ${ id }/promote`, { method: 'POST' });
+    showToast('Topic promoted to Active!', 'success');
 
-        // Remove locally
-        if (card) {
-            card.style.opacity = '0';
-            setTimeout(() => card.remove(), 300);
-        }
-
-        // Refresh both lists
-        state.cmsSuggestions = state.cmsSuggestions.filter(s => s.id !== id);
-        updateSuggestionCount();
-        loadCmsIdeas(); // Reload active ideas
-
-    } catch (e) {
-        console.error('Failed to promote topic:', e);
-        showToast('Failed to promote topic', 'error');
-        if (btn) {
-            btn.textContent = 'Promote to Active';
-            btn.disabled = false;
-        }
+    // Remove locally
+    if (card) {
+        card.style.opacity = '0';
+        setTimeout(() => card.remove(), 300);
     }
+
+    // Refresh both lists
+    state.cmsSuggestions = state.cmsSuggestions.filter(s => s.id !== id);
+    updateSuggestionCount();
+    loadCmsIdeas(); // Reload active ideas
+
+} catch (e) {
+    console.error('Failed to promote topic:', e);
+    showToast('Failed to promote topic', 'error');
+    if (btn) {
+        btn.textContent = 'Promote to Active';
+        btn.disabled = false;
+    }
+}
 }
 
 async function archiveTopic(id) {

@@ -1,7 +1,7 @@
 {
-    "name": "ora-scraper",
+    "name": "ora-cms",
     "version": "1.0.0",
-    "description": "ORA Image Scraper Service with Web Admin UI",
+    "description": "ORA Content Management System with Admin UI",
     "type": "module",
     "main": "dist/index.js",
     "scripts": {

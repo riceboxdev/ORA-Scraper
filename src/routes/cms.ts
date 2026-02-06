@@ -359,6 +359,76 @@ router.post('/posts/:id/generate-tags', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/cms/posts/generate-tags - Generate tags for multiple posts (batch)
+ * Body: { limit: number, delayMs: number }
+ * Returns: { jobs: [{ postId, post, suggestedTags }] }
+ */
+router.post('/posts/generate-tags', async (req: Request, res: Response) => {
+    try {
+        const { limit = 10, delayMs = 500 } = req.body;
+        const maxLimit = Math.min(limit, 20); // Cap at 20 to prevent abuse
+
+        // Find posts with few or no tags
+        const snapshot = await db.collection('userPosts')
+            .where('moderationStatus', '==', 'approved')
+            .orderBy('createdAt', 'desc')
+            .limit(maxLimit * 2) // Fetch more to filter
+            .get();
+
+        // Filter to posts with 0-2 tags
+        const postsNeedingTags = snapshot.docs
+            .filter(doc => {
+                const tags = doc.data().tags || [];
+                return tags.length <= 2;
+            })
+            .slice(0, maxLimit);
+
+        if (postsNeedingTags.length === 0) {
+            return res.json({ jobs: [], message: 'No posts need tagging' });
+        }
+
+        const { aiService } = await import('../services/ai.js');
+        const jobs = [];
+
+        for (const doc of postsNeedingTags) {
+            const data = doc.data();
+            const imageUrl = data.content?.jpegUrl || data.content?.url || data.content?.thumbnailUrl;
+
+            if (!imageUrl) continue;
+
+            try {
+                const suggestedTags = await aiService.generateTagsForImage(imageUrl, data.description);
+
+                if (suggestedTags && suggestedTags.length > 0) {
+                    jobs.push({
+                        postId: doc.id,
+                        post: {
+                            id: doc.id,
+                            content: data.content,
+                            tags: data.tags || [],
+                            description: data.description,
+                        },
+                        suggestedTags,
+                    });
+                }
+            } catch (tagError) {
+                console.error(`Error generating tags for post ${doc.id}:`, tagError);
+            }
+
+            // Delay between calls to avoid rate limits
+            if (delayMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+        }
+
+        res.json({ jobs });
+    } catch (error) {
+        console.error('Error batch generating tags:', error);
+        res.status(500).json({ error: 'Failed to generate tags' });
+    }
+});
+
+/**
  * DELETE /api/cms/posts/:id - Delete post and related data
  */
 router.delete('/posts/:id', async (req: Request, res: Response) => {
