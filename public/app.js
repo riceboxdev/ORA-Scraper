@@ -2734,20 +2734,30 @@ function renderAutoTagJobs() {
                         <div class="text-xs text-muted mb-3">Current tags: ${currentTags.length > 0 ? currentTags.join(', ') : 'None'}</div>
                         
                         <div class="mb-2 font-medium text-sm">Suggested Tags:</div>
-                        <div class="flex flex-wrap gap-2" id="suggested-tags-${idx}">
+                        <div class="flex flex-wrap gap-2 items-center" id="suggested-tags-${idx}">
                             ${job.suggestedTags.map(tag => {
-                                const isAccepted = job.acceptedTags.has(tag);
-                                const isRejected = job.rejectedTags.has(tag);
-                                const stateClass = isAccepted ? 'badge-success' : isRejected ? 'badge-danger' : 'badge-secondary';
-                                return `
-                                    <span class="badge ${stateClass}" style="cursor: pointer; user-select: none;" 
-                                        onclick="toggleAutoTag(${idx}, '${escapeHtml(tag)}')"
-                                        title="Click to toggle">
-                                        ${escapeHtml(tag)}
-                                        ${isAccepted ? ' ✓' : isRejected ? ' ✗' : ''}
+            const isAccepted = job.acceptedTags.has(tag);
+            const isRejected = job.rejectedTags.has(tag);
+            const stateClass = isAccepted ? 'badge-success' : isRejected ? 'badge-danger' : 'badge-secondary';
+            return `
+                                    <span class="badge ${stateClass}" style="cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px;">
+                                        <span onclick="toggleAutoTag(${idx}, '${escapeHtml(tag)}')" title="Click to toggle">
+                                            ${escapeHtml(tag)}${isAccepted ? ' ✓' : isRejected ? ' ✗' : ''}
+                                        </span>
+                                        <span onclick="removeTagFromJob(${idx}, '${escapeHtml(tag)}')" 
+                                            style="opacity: 0.6; cursor: pointer; font-size: 14px; margin-left: 2px;"
+                                            title="Remove tag">×</span>
                                     </span>
                                 `;
-                            }).join('')}
+        }).join('')}
+                            <!-- Add tag input -->
+                            <div class="flex items-center gap-1">
+                                <input type="text" id="add-tag-input-${idx}" 
+                                    placeholder="+ add tag" 
+                                    style="width: 80px; padding: 2px 8px; font-size: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: inherit;"
+                                    onkeydown="if(event.key === 'Enter') { addTagToJob(${idx}); event.preventDefault(); }">
+                                <button class="btn btn-sm btn-ghost" onclick="addTagToJob(${idx})" style="padding: 2px 6px; font-size: 11px;">Add</button>
+                            </div>
                         </div>
                         
                         <div class="flex gap-2 mt-3">
@@ -2765,7 +2775,7 @@ function renderAutoTagJobs() {
 function toggleAutoTag(jobIdx, tag) {
     const job = autoTagState.jobs[jobIdx];
     if (!job) return;
-    
+
     if (job.acceptedTags.has(tag)) {
         job.acceptedTags.delete(tag);
         job.rejectedTags.add(tag);
@@ -2774,31 +2784,66 @@ function toggleAutoTag(jobIdx, tag) {
     } else {
         job.acceptedTags.add(tag);
     }
-    
+
+    renderAutoTagJobs();
+}
+
+function removeTagFromJob(jobIdx, tag) {
+    const job = autoTagState.jobs[jobIdx];
+    if (!job) return;
+
+    // Remove from all sets
+    const tagIndex = job.suggestedTags.indexOf(tag);
+    if (tagIndex > -1) {
+        job.suggestedTags.splice(tagIndex, 1);
+    }
+    job.acceptedTags.delete(tag);
+    job.rejectedTags.delete(tag);
+
+    renderAutoTagJobs();
+}
+
+function addTagToJob(jobIdx) {
+    const job = autoTagState.jobs[jobIdx];
+    if (!job) return;
+
+    const input = document.getElementById(`add-tag-input-${jobIdx}`);
+    if (!input) return;
+
+    const newTag = input.value.trim().toLowerCase();
+    if (!newTag) return;
+
+    // Add to suggested tags if not already there
+    if (!job.suggestedTags.includes(newTag)) {
+        job.suggestedTags.push(newTag);
+        job.acceptedTags.add(newTag); // Auto-accept custom tags
+    }
+
+    input.value = '';
     renderAutoTagJobs();
 }
 
 function acceptAllJobTags(jobIdx) {
     const job = autoTagState.jobs[jobIdx];
     if (!job) return;
-    
+
     job.suggestedTags.forEach(tag => {
         job.acceptedTags.add(tag);
         job.rejectedTags.delete(tag);
     });
-    
+
     renderAutoTagJobs();
 }
 
 function rejectAllJobTags(jobIdx) {
     const job = autoTagState.jobs[jobIdx];
     if (!job) return;
-    
+
     job.suggestedTags.forEach(tag => {
         job.rejectedTags.add(tag);
         job.acceptedTags.delete(tag);
     });
-    
+
     renderAutoTagJobs();
 }
 
@@ -2825,30 +2870,30 @@ function clearAutoTagJobs() {
 async function applyAutoTags() {
     const btn = document.getElementById('applyTagsBtn');
     const jobsToApply = autoTagState.jobs.filter(j => j.acceptedTags.size > 0);
-    
+
     if (jobsToApply.length === 0) {
         showToast('No accepted tags to apply', 'warning');
         return;
     }
-    
+
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> Applying...';
-    
+
     let successCount = 0;
     let errorCount = 0;
-    
+
     for (const job of jobsToApply) {
         try {
             const currentTags = job.post?.tags || [];
             const newTags = [...new Set([...currentTags, ...Array.from(job.acceptedTags)])];
-            
+
             await api(`/api/cms/posts/${job.postId}`, {
                 method: 'PUT',
                 body: JSON.stringify({ tags: newTags })
             });
-            
+
             successCount++;
-            
+
             // Remove from jobs list
             const idx = autoTagState.jobs.indexOf(job);
             if (idx > -1) autoTagState.jobs.splice(idx, 1);
@@ -2857,11 +2902,11 @@ async function applyAutoTags() {
             errorCount++;
         }
     }
-    
+
     renderAutoTagJobs();
     btn.disabled = false;
     btn.innerHTML = '💾 Apply Approved Tags';
-    
+
     if (successCount > 0) {
         showToast(`Applied tags to ${successCount} posts`, 'success');
     }
@@ -3015,11 +3060,10 @@ function renderIdeasGrid(container) {
 
     container.innerHTML = `
             < div class="ideas-grid" >
-                ${
-                    state.cmsIdeas.map(idea => {
-                        const isSelected = state.selectedIdeas.has(idea.id);
+                ${state.cmsIdeas.map(idea => {
+        const isSelected = state.selectedIdeas.has(idea.id);
 
-                        return `
+        return `
             <div class="idea-card ${isSelected ? 'selected' : ''}" style="position: relative;">
                 <div class="post-grid-selection" style="position: absolute; top: 10px; right: 10px; z-index: 10;">
                     <input type="checkbox" class="post-checkbox idea-select" data-id="${idea.id}" ${isSelected ? 'checked' : ''} onchange="toggleIdeaSelection('${idea.id}')">
@@ -3036,7 +3080,7 @@ function renderIdeasGrid(container) {
                 </div>
             </div>
         `;
-                    }).join('')
+    }).join('')
         }
         </div >
             `;
@@ -3065,10 +3109,10 @@ function renderIdeasTable(container) {
                     </thead>
                     <tbody>
                         ${state.cmsIdeas.map(idea => {
-                            const isSelected = state.selectedIdeas.has(idea.id);
-                            const date = idea.createdAt ? new Date(idea.createdAt) : null;
+        const isSelected = state.selectedIdeas.has(idea.id);
+        const date = idea.createdAt ? new Date(idea.createdAt) : null;
 
-                            return `
+        return `
                         <tr>
                             <td><input type="checkbox" class="post-checkbox idea-select" data-id="${idea.id}" ${isSelected ? 'checked' : ''} onchange="toggleIdeaSelection('${idea.id}')"></td>
                             <td>
@@ -3092,7 +3136,7 @@ function renderIdeasTable(container) {
                             </td>
                         </tr>
                         `;
-                        }).join('')}
+    }).join('')}
                     </tbody>
                 </table>
         </div >
@@ -3146,14 +3190,14 @@ function updateIdeasBulkBar() {
 
 async function handleBulkArchiveIdeas() {
     const ids = Array.from(state.selectedIdeas);
-    if (!confirm(`Archive ${ ids.length } topics ? They will be hidden from the main list.`)) return;
+    if (!confirm(`Archive ${ids.length} topics ? They will be hidden from the main list.`)) return;
 
     try {
         await api('/api/cms/ideas/bulk/archive', {
             method: 'POST',
             body: JSON.stringify({ ids }),
         });
-        showToast(`${ ids.length } topics archived`, 'success');
+        showToast(`${ids.length} topics archived`, 'success');
         clearIdeaSelection();
         loadCmsIdeas();
     } catch (e) {
@@ -3164,14 +3208,14 @@ async function handleBulkArchiveIdeas() {
 
 async function handleBulkDeleteIdeas() {
     const ids = Array.from(state.selectedIdeas);
-    if (!confirm(`DELETE ${ ids.length } topics ? This is permanent!`)) return;
+    if (!confirm(`DELETE ${ids.length} topics ? This is permanent!`)) return;
 
     try {
         await api('/api/cms/ideas/bulk/delete', {
             method: 'POST',
             body: JSON.stringify({ ids }),
         });
-        showToast(`${ ids.length } topics deleted`, 'success');
+        showToast(`${ids.length} topics deleted`, 'success');
         clearIdeaSelection();
         loadCmsIdeas();
     } catch (e) {
@@ -3283,7 +3327,7 @@ async function generateSuggestions() {
 }
 
 async function promoteTopic(id) {
-    const card = document.getElementById(`suggestion - ${ id } `);
+    const card = document.getElementById(`suggestion - ${id} `);
     const btn = card?.querySelector('.btn-primary');
     if (btn) {
         btn.textContent = 'Approving...';
@@ -3291,28 +3335,28 @@ async function promoteTopic(id) {
     }
 
     try {
-        await api(`/ api / cms / topics / ${ id }/promote`, { method: 'POST' });
-    showToast('Topic promoted to Active!', 'success');
+        await api(`/ api / cms / topics / ${id}/promote`, { method: 'POST' });
+        showToast('Topic promoted to Active!', 'success');
 
-    // Remove locally
-    if (card) {
-        card.style.opacity = '0';
-        setTimeout(() => card.remove(), 300);
+        // Remove locally
+        if (card) {
+            card.style.opacity = '0';
+            setTimeout(() => card.remove(), 300);
+        }
+
+        // Refresh both lists
+        state.cmsSuggestions = state.cmsSuggestions.filter(s => s.id !== id);
+        updateSuggestionCount();
+        loadCmsIdeas(); // Reload active ideas
+
+    } catch (e) {
+        console.error('Failed to promote topic:', e);
+        showToast('Failed to promote topic', 'error');
+        if (btn) {
+            btn.textContent = 'Promote to Active';
+            btn.disabled = false;
+        }
     }
-
-    // Refresh both lists
-    state.cmsSuggestions = state.cmsSuggestions.filter(s => s.id !== id);
-    updateSuggestionCount();
-    loadCmsIdeas(); // Reload active ideas
-
-} catch (e) {
-    console.error('Failed to promote topic:', e);
-    showToast('Failed to promote topic', 'error');
-    if (btn) {
-        btn.textContent = 'Promote to Active';
-        btn.disabled = false;
-    }
-}
 }
 
 async function archiveTopic(id) {
