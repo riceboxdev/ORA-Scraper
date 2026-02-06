@@ -365,27 +365,44 @@ router.post('/posts/:id/generate-tags', async (req: Request, res: Response) => {
  */
 router.post('/posts/generate-tags', async (req: Request, res: Response) => {
     try {
-        const { limit = 10, delayMs = 500, moderationStatus } = req.body;
+        const { limit = 10, delayMs = 500 } = req.body;
         const maxLimit = Math.min(limit, 20); // Cap at 20 to prevent abuse
 
-        // Find posts (optionally filter by moderation status)
-        let query: admin.firestore.Query = db.collection('userPosts')
-            .orderBy('createdAt', 'desc');
+        // Paginate through posts until we find enough that need tagging
+        const postsNeedingTags: admin.firestore.QueryDocumentSnapshot[] = [];
+        let lastDoc: admin.firestore.QueryDocumentSnapshot | null = null;
+        const maxIterations = 10; // Safety limit to prevent infinite loops
+        let iterations = 0;
 
-        // Only filter by moderationStatus if explicitly provided
-        if (moderationStatus) {
-            query = query.where('moderationStatus', '==', moderationStatus);
-        }
+        while (postsNeedingTags.length < maxLimit && iterations < maxIterations) {
+            let query: admin.firestore.Query = db.collection('userPosts')
+                .orderBy('createdAt', 'desc')
+                .limit(50); // Fetch 50 at a time
 
-        const snapshot = await query.limit(maxLimit * 3).get(); // Fetch more to filter
+            if (lastDoc) {
+                query = query.startAfter(lastDoc);
+            }
 
-        // Filter to posts with 0-2 tags
-        const postsNeedingTags = snapshot.docs
-            .filter(doc => {
+            const snapshot = await query.get();
+
+            if (snapshot.empty) {
+                break; // No more posts
+            }
+
+            // Filter for posts with 0-2 tags
+            for (const doc of snapshot.docs) {
                 const tags = doc.data().tags || [];
-                return tags.length <= 2;
-            })
-            .slice(0, maxLimit);
+                if (tags.length <= 2) {
+                    postsNeedingTags.push(doc);
+                    if (postsNeedingTags.length >= maxLimit) {
+                        break;
+                    }
+                }
+            }
+
+            lastDoc = snapshot.docs[snapshot.docs.length - 1];
+            iterations++;
+        }
 
         if (postsNeedingTags.length === 0) {
             return res.json({ jobs: [], message: 'No posts need tagging' });
