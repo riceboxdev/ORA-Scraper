@@ -365,15 +365,19 @@ router.post('/posts/:id/generate-tags', async (req: Request, res: Response) => {
  */
 router.post('/posts/generate-tags', async (req: Request, res: Response) => {
     try {
-        const { limit = 10, delayMs = 500 } = req.body;
+        const { limit = 10, delayMs = 500, moderationStatus } = req.body;
         const maxLimit = Math.min(limit, 20); // Cap at 20 to prevent abuse
 
-        // Find posts with few or no tags
-        const snapshot = await db.collection('userPosts')
-            .where('moderationStatus', '==', 'approved')
-            .orderBy('createdAt', 'desc')
-            .limit(maxLimit * 2) // Fetch more to filter
-            .get();
+        // Find posts (optionally filter by moderation status)
+        let query: admin.firestore.Query = db.collection('userPosts')
+            .orderBy('createdAt', 'desc');
+
+        // Only filter by moderationStatus if explicitly provided
+        if (moderationStatus) {
+            query = query.where('moderationStatus', '==', moderationStatus);
+        }
+
+        const snapshot = await query.limit(maxLimit * 3).get(); // Fetch more to filter
 
         // Filter to posts with 0-2 tags
         const postsNeedingTags = snapshot.docs
