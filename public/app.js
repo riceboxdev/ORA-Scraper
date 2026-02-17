@@ -2363,7 +2363,7 @@ async function toggleUserAdmin(id, isAdmin) {
         loadCmsUsers();
     } catch (e) {
         console.error('Failed to update user:', e);
-        showToast('Failed to update user', 'error');
+        showToast('Failed to update user: ' + e.message, 'error');
     }
 }
 

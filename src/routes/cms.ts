@@ -677,15 +677,26 @@ router.put('/users/:id', async (req: Request, res: Response) => {
 
         if (isAdmin !== undefined) {
             // Set admin claim in Firebase Auth
-            await admin.auth().setCustomUserClaims(req.params.id, { admin: isAdmin });
+            try {
+                await admin.auth().setCustomUserClaims(req.params.id, { admin: isAdmin });
+            } catch (authError: any) {
+                console.error('Error setting custom claims:', authError);
+                return res.status(500).json({
+                    error: 'Failed to set admin claims',
+                    details: authError.message || authError.code || 'Unknown auth error',
+                });
+            }
             updates.isAdmin = isAdmin;
         }
 
         await db.collection('userProfiles').doc(req.params.id).update(updates);
         res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error updating user:', error);
-        res.status(500).json({ error: 'Failed to update user' });
+        res.status(500).json({
+            error: 'Failed to update user',
+            details: error.message || 'Unknown error',
+        });
     }
 });
 
